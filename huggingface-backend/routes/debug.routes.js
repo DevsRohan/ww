@@ -5,6 +5,10 @@
  *
  * Designed for: copy-paste-and-share when something breaks.
  * Secrets are masked automatically. Safe to leave on in production.
+ *
+ * IMPORTANT: this file ONLY depends on logger.js (which is self-contained)
+ * and lazy-requires whatsapp/queue services. If any optional service is
+ * missing, the page still renders with whatever info is available.
  */
 
 const express = require('express');
@@ -14,9 +18,7 @@ const os = require('os');
 
 const config = require('../config');
 const constants = require('../config/constants');
-const diagnostics = require('../services/diagnostics.service');
-const whatsapp = require('../services/whatsapp.service');
-const queue = require('../services/queue.service');
+const logger = require('../utils/logger');
 
 const router = express.Router();
 
@@ -26,6 +28,14 @@ function escapeHtml(s) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function safeRequire(modPath, fallback) {
+  try {
+    return require(modPath);
+  } catch (e) {
+    return fallback || { __error: e.message };
+  }
 }
 
 function checkSessionFiles() {
@@ -63,10 +73,26 @@ function checkSessionFiles() {
 
 function fullSnapshot() {
   const mem = process.memoryUsage();
-  const wa = whatsapp.getStatus();
-  const q = queue.snapshot();
-  const diag = diagnostics.snapshot();
+
+  // Lazy-require so the debug page still works even if a service file
+  // is somehow missing in a partial deploy.
+  const whatsapp = safeRequire('../services/whatsapp.service', {
+    getStatus: () => ({ state: 'unavailable', ready: false, hasQr: false }),
+  });
+  const queue = safeRequire('../services/queue.service', {
+    snapshot: () => ({ size: 0, running: false, processing: false, next: null }),
+  });
+
+  const wa = (typeof whatsapp.getStatus === 'function')
+    ? whatsapp.getStatus()
+    : { state: 'unavailable', ready: false, hasQr: false };
+  const q = (typeof queue.snapshot === 'function')
+    ? queue.snapshot()
+    : { size: 0, running: false, processing: false, next: null };
+
   const sessionInfo = checkSessionFiles();
+  const startedAt = logger.getStartedAt();
+  const env = logger.getEnvSnapshot();
 
   // Health checks
   const checks = {
@@ -88,6 +114,10 @@ function fullSnapshot() {
     ? (wa.ready ? 'healthy' : (wa.hasQr ? 'awaiting_qr' : 'initializing'))
     : 'misconfigured';
 
+  const recentLogs = logger.getLogs().slice(-50).reverse();
+  const recentErrors = logger.getErrors().slice(-20).reverse();
+  const recentEvents = logger.getEvents().slice(-30).reverse();
+
   return {
     overall,
     service: 'whatsapp-crm-engine',
@@ -95,7 +125,7 @@ function fullSnapshot() {
     ts: Date.now(),
     iso: new Date().toISOString(),
     uptime_s: Math.round(process.uptime()),
-    started_at: diag.startedAt ? new Date(diag.startedAt).toISOString() : null,
+    started_at: startedAt ? new Date(startedAt).toISOString() : null,
 
     runtime: {
       node: process.version,
@@ -112,7 +142,7 @@ function fullSnapshot() {
       heap_total_mb: Math.round(mem.heapTotal / 1048576),
     },
 
-    env: diag.env,
+    env,
     checks,
     whatsapp: wa,
     queue: q,
@@ -122,21 +152,37 @@ function fullSnapshot() {
       connection_states: Object.values(constants.CONNECTION_STATES),
     },
     session: sessionInfo,
-    counts: diag.counts,
-    recent_errors: diag.recent_errors,
-    recent_events: diag.recent_events,
-    recent_logs: diag.recent_logs,
+    counts: {
+      logs: recentLogs.length,
+      errors: recentErrors.length,
+      events: recentEvents.length,
+    },
+    recent_errors: recentErrors,
+    recent_events: recentEvents,
+    recent_logs: recentLogs,
   };
 }
 
 // JSON dump (machine-readable)
 router.get('/debug.json', (req, res) => {
-  res.json(fullSnapshot());
+  try {
+    res.json(fullSnapshot());
+  } catch (e) {
+    res.status(500).json({ ok: false, error: 'snapshot_failed', message: e.message, stack: e.stack });
+  }
 });
 
 // HTML dashboard
 router.get('/debug', (req, res) => {
-  const s = fullSnapshot();
+  let s;
+  try {
+    s = fullSnapshot();
+  } catch (e) {
+    return res
+      .status(500)
+      .set('Content-Type', 'text/html; charset=utf-8')
+      .send(`<pre style="font-family:monospace;padding:20px;color:#991B1B">Snapshot failed: ${escapeHtml(e.message)}\n\n${escapeHtml(e.stack || '')}</pre>`);
+  }
   const dot = s.overall === 'healthy' ? '#10B981'
     : s.overall === 'awaiting_qr' ? '#F59E0B'
     : s.overall === 'initializing' ? '#6B7280'
@@ -165,7 +211,6 @@ router.get('/debug', (req, res) => {
   .pill.red{background:#FEE2E2;color:#991B1B}
   .pill.gray{background:#F1F5F4;color:#2A3936}
   .dot{width:8px;height:8px;border-radius:50%;background:${dot}}
-  pre{background:#0A1F1C;color:#A7F3D0;padding:14px;border-radius:8px;font-size:11px;overflow-x:auto;font-family:ui-monospace,SFMono-Regular,monospace;line-height:1.5;max-height:340px;overflow-y:auto;white-space:pre-wrap;word-break:break-word}
   .err{background:#FEF2F2;border-left:3px solid #EF4444;padding:8px 12px;border-radius:4px;margin-bottom:8px;font-size:12px}
   .err .ts{color:#5C6B68;font-size:10.5px}
   .ev{font-family:ui-monospace,SFMono-Regular,monospace;font-size:11.5px;padding:5px 10px;background:#F1F5F4;border-radius:4px;margin-bottom:4px}
@@ -190,7 +235,7 @@ router.get('/debug', (req, res) => {
 </head>
 <body>
 <div class="wrap">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:12px">
     <div>
       <span class="pill ${s.overall === 'healthy' ? 'green' : s.overall === 'awaiting_qr' ? 'amber' : s.overall === 'initializing' ? 'gray' : 'red'}">
         <span class="dot"></span> ${escapeHtml(s.overall)}
@@ -237,7 +282,7 @@ router.get('/debug', (req, res) => {
     <div class="kv"><span class="k">state</span><span class="v">${escapeHtml(s.whatsapp.state)}</span></div>
     <div class="kv"><span class="k">ready</span><span class="v">${s.whatsapp.ready}</span></div>
     <div class="kv"><span class="k">hasQr</span><span class="v">${s.whatsapp.hasQr}</span></div>
-    <div class="kv"><span class="k">bootAttempts</span><span class="v">${s.whatsapp.bootAttempts}</span></div>
+    <div class="kv"><span class="k">bootAttempts</span><span class="v">${s.whatsapp.bootAttempts || 0}</span></div>
     <div class="kv"><span class="k">lastReadyAt</span><span class="v">${escapeHtml(s.whatsapp.lastReadyAt || '—')}</span></div>
     <div class="kv"><span class="k">phone</span><span class="v">${escapeHtml(s.whatsapp.info?.wid?._serialized || s.whatsapp.info?.wid?.user || '—')}</span></div>
     <div class="kv"><span class="k">pushname</span><span class="v">${escapeHtml(s.whatsapp.info?.pushname || '—')}</span></div>
@@ -257,7 +302,7 @@ router.get('/debug', (req, res) => {
     ${Object.entries(s.session).map(([k, v]) => `
       <div class="kv"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(String(v))}</span></div>
     `).join('')}
-    <div class="meta-note">On HF Spaces free tier the filesystem is ephemeral — session resets on Space restart. Upgrade to HF Pro and mount /data for persistence.</div>
+    <div class="meta-note">On HF Spaces free tier the filesystem is ephemeral — session resets on Space restart.</div>
   </div>
 
   <h2>Recent Errors (${s.recent_errors.length})</h2>
@@ -268,7 +313,7 @@ router.get('/debug', (req, res) => {
           <div class="err">
             <div class="ts">${escapeHtml(e.iso)}</div>
             <div><strong>${escapeHtml(e.msg)}</strong></div>
-            ${e.meta ? `<pre style="background:#fff;color:#0A1F1C;padding:6px 0 0;font-size:10.5px;max-height:none">${escapeHtml(JSON.stringify(e.meta, null, 2))}</pre>` : ''}
+            ${e.meta ? `<pre style="background:#fff;color:#0A1F1C;padding:6px 0 0;font-size:10.5px;max-height:none;font-family:ui-monospace,monospace;white-space:pre-wrap;word-break:break-word">${escapeHtml(JSON.stringify(e.meta, null, 2))}</pre>` : ''}
           </div>
         `).join('')}
   </div>
@@ -279,7 +324,7 @@ router.get('/debug', (req, res) => {
       ? '<div style="color:#5C6B68;font-size:12px">No events recorded yet.</div>'
       : s.recent_events.slice(0, 30).map(e => `
           <div class="ev">
-            <span style="color:#5C6B68">${escapeHtml(new Date(e.ts).toISOString())}</span>
+            <span style="color:#5C6B68">${escapeHtml(e.iso || new Date(e.ts).toISOString())}</span>
             ·
             <strong>${escapeHtml(e.name)}</strong>
             ${e.data ? `<span style="color:#5C6B68"> · ${escapeHtml(JSON.stringify(e.data))}</span>` : ''}
