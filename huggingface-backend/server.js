@@ -59,8 +59,19 @@ app.use(
   })
 );
 
-// Rate limit on REST routes
-app.use(rateLimiter);
+// Rate limit on REST routes (skip /debug* and /health and /qr so they
+// always remain reachable for operators)
+app.use((req, res, next) => {
+  if (
+    req.path.startsWith('/debug') ||
+    req.path === '/health' ||
+    req.path === '/qr' ||
+    req.path === '/'
+  ) {
+    return next();
+  }
+  return rateLimiter(req, res, next);
+});
 
 // Routes
 app.use(routes);
@@ -93,7 +104,7 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 process.on('unhandledRejection', (reason) => {
-  logger.error('unhandledRejection', { reason: String(reason) });
+  logger.error('unhandledRejection', { reason: String(reason && reason.stack || reason) });
 });
 process.on('uncaughtException', (err) => {
   logger.error('uncaughtException', { err: err.message, stack: err.stack });

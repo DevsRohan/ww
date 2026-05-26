@@ -4,6 +4,7 @@ const axios = require('axios');
 const crypto = require('crypto');
 const config = require('../config');
 const logger = require('../utils/logger');
+const diagnostics = require('./diagnostics.service');
 const { retry } = require('../utils/retry');
 
 function sign(rawBody, secret) {
@@ -13,10 +14,12 @@ function sign(rawBody, secret) {
 async function dispatch(eventType, payload) {
   if (!config.hostingerWebhookUrl) {
     logger.debug('webhook url not set; skipping dispatch', { eventType });
+    diagnostics.pushEvent('webhook_skipped', { eventType, reason: 'no_url' });
     return { skipped: true };
   }
   if (!config.webhookSecret) {
     logger.warn('webhook secret missing; not dispatching for safety', { eventType });
+    diagnostics.pushEvent('webhook_skipped', { eventType, reason: 'no_secret' });
     return { skipped: true };
   }
 
@@ -54,12 +57,14 @@ async function dispatch(eventType, payload) {
           }),
       }
     );
+    diagnostics.pushEvent('webhook_dispatched', { eventType, eventId });
     return { ok: true, eventId };
   } catch (err) {
     logger.error('webhook dispatch failed permanently', {
       eventType,
       err: err.message,
     });
+    diagnostics.pushEvent('webhook_failed', { eventType, eventId, err: err.message });
     return { ok: false, error: err.message };
   }
 }

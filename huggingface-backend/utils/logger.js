@@ -1,6 +1,7 @@
 'use strict';
 
 const config = require('../config');
+const diagnostics = require('../services/diagnostics.service');
 
 const LEVELS = { debug: 10, info: 20, warn: 30, error: 40 };
 const currentLevel = LEVELS[config.logLevel] || LEVELS.info;
@@ -22,8 +23,30 @@ function fmt(level, msg, meta) {
 }
 
 function emit(level, msg, meta) {
-  if ((LEVELS[level] || 0) < currentLevel) return;
   const line = fmt(level, msg, meta);
+
+  // Always feed diagnostics ring buffer (regardless of console level)
+  try {
+    diagnostics.pushLog({
+      ts: Date.now(),
+      iso: new Date().toISOString(),
+      level,
+      msg,
+      meta: meta || null,
+    });
+    if (level === 'error') {
+      diagnostics.pushError({
+        ts: Date.now(),
+        iso: new Date().toISOString(),
+        msg,
+        meta: meta || null,
+      });
+    }
+  } catch (_) {
+    /* never let diagnostics break logging */
+  }
+
+  if ((LEVELS[level] || 0) < currentLevel) return;
   if (level === 'error' || level === 'warn') {
     // eslint-disable-next-line no-console
     console.error(line);
