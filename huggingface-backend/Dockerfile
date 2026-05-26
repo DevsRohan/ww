@@ -4,8 +4,10 @@
 # =========================================================
 FROM node:20-slim
 
-# Install Chromium + dependencies for Puppeteer
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# ---- System deps for Chromium / Puppeteer ----
+# node:20-slim is Debian Bookworm (12); package names below are correct for Bookworm.
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends --no-install-suggests \
     chromium \
     fonts-liberation \
     libasound2 \
@@ -44,34 +46,43 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     xdg-utils \
     procps \
-    && rm -rf /var/lib/apt/lists/*
+    dumb-init \
+ && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
-# Tell Puppeteer to skip downloading Chromium and use system one
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+# Tell Puppeteer to use system Chromium (skip its bundled download)
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
-# HF Spaces requires user 1000
-RUN useradd -m -u 1000 user
+# ---- HF Spaces requires UID 1000 ----
+# node:20-slim already ships with `node` user at UID 1000 — remove it,
+# then create our `user` at UID 1000 (the UID HF expects).
+RUN userdel -r node 2>/dev/null || true \
+ && groupadd -g 1000 user \
+ && useradd -m -u 1000 -g 1000 -s /bin/bash user
+
 USER user
 ENV HOME=/home/user \
-    PATH=/home/user/.local/bin:$PATH
+    PATH=/home/user/.local/bin:$PATH \
+    NODE_ENV=production \
+    PORT=7860
 
 WORKDIR /home/user/app
 
-# Persistent session dir (HF /data is writable for Pro; fallback to local)
+# Persistent session dir (writable by `user`)
 RUN mkdir -p /home/user/app/data/wa_session
 
-# Install deps
+# ---- Install dependencies first (better cache) ----
 COPY --chown=user:user package.json ./
-RUN npm install --omit=dev --no-audit --no-fund
+RUN npm install --omit=dev --no-audit --no-fund --loglevel=warn \
+ && npm cache clean --force
 
-# Copy app
+# ---- Copy app source ----
 COPY --chown=user:user . .
 
-ENV PORT=7860
-ENV NODE_ENV=production
 ENV SESSION_PATH=/home/user/app/data/wa_session
 
 EXPOSE 7860
 
+# Use dumb-init as PID 1 so SIGTERM/SIGINT propagate to Node correctly
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 CMD ["node", "server.js"]

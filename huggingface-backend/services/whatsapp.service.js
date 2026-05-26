@@ -54,22 +54,27 @@ class WhatsAppService {
       puppeteer: {
         headless: true,
         executablePath: config.whatsapp.puppeteerExecutable,
+        // NOTE: do NOT use --single-process — it causes Chromium to crash on
+        // recent versions during long sessions.
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
           '--disable-dev-shm-usage',
           '--disable-accelerated-2d-canvas',
+          '--disable-gpu',
           '--no-first-run',
           '--no-zygote',
-          '--single-process',
-          '--disable-gpu',
+          '--disable-extensions',
+          '--disable-background-networking',
+          '--disable-default-apps',
+          '--disable-sync',
+          '--metrics-recording-only',
+          '--mute-audio',
+          '--hide-scrollbars',
         ],
       },
-      webVersionCache: {
-        type: 'remote',
-        remotePath:
-          'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
-      },
+      // Let whatsapp-web.js manage its own bundled WA Web version to avoid
+      // breakage when the pinned remote HTML drifts out of date.
     });
 
     this._bindEvents();
