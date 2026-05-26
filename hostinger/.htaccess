@@ -1,0 +1,67 @@
+# =============================================================
+# Root .htaccess — security headers + clean URLs
+# =============================================================
+
+Options -Indexes -MultiViews
+ServerSignature Off
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  # Force HTTPS (uncomment after SSL is provisioned)
+  # RewriteCond %{HTTPS} !=on
+  # RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+</IfModule>
+
+# Block direct access to sensitive folders
+<IfModule mod_rewrite.c>
+  RewriteRule ^config/ - [F,L]
+  RewriteRule ^includes/ - [F,L]
+  RewriteRule ^logs/ - [F,L]
+  RewriteRule ^uploads/ - [F,L]
+  RewriteRule ^scripts/ - [F,L]
+  RewriteRule ^sql/ - [F,L]
+  RewriteRule ^\.env$ - [F,L]
+  RewriteRule ^\.git - [F,L]
+</IfModule>
+
+# Security headers
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set Permissions-Policy "geolocation=(), microphone=(), camera=()"
+  # CSP is permissive to allow Tailwind CDN + Socket.io CDN; tighten if needed.
+  Header set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.socket.io; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self' https: wss:; frame-ancestors 'self';"
+</IfModule>
+
+# Block dotfiles
+<FilesMatch "^\.">
+  Require all denied
+</FilesMatch>
+
+# Disable PHP execution in upload dir (defense-in-depth)
+<Directory "uploads">
+  php_flag engine off
+  AddType text/plain .php .phtml .php3 .php4 .php5 .php7 .pht .phps
+</Directory>
+
+# PHP hardening
+<IfModule mod_php.c>
+  php_flag display_errors Off
+  php_flag expose_php Off
+  php_value upload_max_filesize 16M
+  php_value post_max_size 18M
+</IfModule>
+
+# Default index
+DirectoryIndex index.php
+
+# Cache static assets
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType text/css "access plus 7 days"
+  ExpiresByType application/javascript "access plus 7 days"
+  ExpiresByType image/svg+xml "access plus 30 days"
+  ExpiresByType image/x-icon "access plus 30 days"
+  ExpiresByType audio/mpeg "access plus 30 days"
+</IfModule>

@@ -1,0 +1,105 @@
+/* =============================================================
+   Chat bubbles + conversation styles
+============================================================= */
+
+.msg {
+  display: flex;
+  gap: 8px;
+  max-width: 78%;
+  margin-bottom: 4px;
+}
+.msg-bubble {
+  padding: 9px 13px;
+  border-radius: 14px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.msg-meta {
+  font-size: 10.5px;
+  color: var(--ink-500);
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* inbound (lead) */
+.msg.inbound { align-self: flex-start; margin-right: auto; }
+.msg.inbound .msg-bubble {
+  background: #fff;
+  border: 1px solid var(--ink-200);
+  border-bottom-left-radius: 4px;
+  color: var(--ink-900);
+  box-shadow: var(--shadow-soft);
+}
+
+/* outbound (us) */
+.msg.outbound { align-self: flex-end; margin-left: auto; flex-direction: row-reverse; }
+.msg.outbound .msg-bubble {
+  background: var(--brand-500);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+  box-shadow: 0 4px 10px rgba(16,185,129,.18);
+}
+.msg.outbound .msg-meta { justify-content: flex-end; color: var(--ink-500); }
+
+/* status icons (single, double, double-blue) */
+.tick {
+  display: inline-flex;
+  width: 14px; height: 10px;
+  align-items: center; justify-content: center;
+}
+.tick svg { width: 14px; height: 10px; }
+.tick.read { color: var(--brand-600); }
+.tick.delivered { color: var(--ink-500); }
+.tick.sent { color: var(--ink-500); }
+.tick.failed { color: #DC2626; }
+
+/* date separator */
+.date-sep {
+  display: flex; align-items: center; gap: 10px;
+  margin: 16px 0 8px; color: var(--ink-500); font-size: 11px; font-weight: 500;
+}
+.date-sep::before, .date-sep::after {
+  content: ''; flex: 1; height: 1px; background: var(--ink-200);
+}
+
+/* AI insight chip */
+.ai-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--brand-50);
+  color: var(--brand-700, #047857);
+  font-size: 10.5px;
+  font-weight: 500;
+}
+
+/* Detail drawer sections */
+.detail-section { padding: 14px; background: var(--ink-50); border-radius: 12px; border: 1px solid var(--ink-200); }
+.detail-label { font-size: 10.5px; color: var(--ink-500); text-transform: uppercase; letter-spacing: .04em; font-weight: 500; }
+.detail-value { font-size: 13.5px; color: var(--ink-900); margin-top: 2px; }
+.detail-row + .detail-row { margin-top: 10px; }
+
+/* Tag pills */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px 2px 10px;
+  background: var(--brand-50);
+  color: var(--brand-700, #047857);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+}
+.tag .x {
+  cursor: pointer;
+  opacity: 0.6;
+}
+.tag .x:hover { opacity: 1; }

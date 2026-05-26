@@ -1,0 +1,31 @@
+# Node
+node_modules/
+npm-debug.log
+package-lock.json
+yarn.lock
+
+# Env
+.env
+.env.local
+
+# WhatsApp session (sensitive)
+data/wa_session/
+huggingface-backend/data/wa_session/
+.wwebjs_auth/
+.wwebjs_cache/
+
+# Logs / uploads (runtime)
+hostinger/logs/*.log
+hostinger/logs/*.log.*
+hostinger/uploads/*.csv
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# PHP
+*.swp
