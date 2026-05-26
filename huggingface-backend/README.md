@@ -1,3 +1,14 @@
+---
+title: WhatsApp CRM Engine
+emoji: 💬
+colorFrom: green
+colorTo: gray
+sdk: docker
+app_port: 7860
+pinned: false
+short_description: WhatsApp engine (whatsapp-web.js + Socket.io) for the CRM
+---
+
 # WhatsApp Engine (Hugging Face Spaces)
 
 Node.js + Express + Socket.io + whatsapp-web.js backend for the WhatsApp CRM.
