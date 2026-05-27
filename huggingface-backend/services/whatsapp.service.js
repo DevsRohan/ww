@@ -158,7 +158,9 @@ class WhatsAppService {
       try {
         if (!msg || !msg.from || msg.from.endsWith('@g.us')) return; // skip groups
         if (msg.from === 'status@broadcast') return;
-        if (msg.fromMe) return; // skip own outbound messages (handled by message_create)
+        // NOTE: Do NOT filter msg.fromMe here — WhatsApp Business (smba) marks
+        // ALL messages as fromMe=true including real client replies.
+        // Own-number filtering is done in PHP webhook instead.
 
         const from = phone.fromChatId(msg.from);
         const payload = {
