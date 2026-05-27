@@ -22,8 +22,31 @@ $sig = $_SERVER['HTTP_X_WEBHOOK_SIGNATURE'] ?? '';
 $eventType = $_SERVER['HTTP_X_WEBHOOK_EVENT'] ?? '';
 $eventId   = $_SERVER['HTTP_X_WEBHOOK_ID'] ?? '';
 
+// Verify signature — try multiple header formats (LiteSpeed may alter header names)
+$sig = $_SERVER['HTTP_X_WEBHOOK_SIGNATURE']
+    ?? $_SERVER['HTTP_X_WEBHOOK_SIGNATURE']
+    ?? $_SERVER['HTTP_WEBHOOK_SIGNATURE']
+    ?? '';
+
+// If signature is empty, try reading from all headers manually
+if ($sig === '' && function_exists('getallheaders')) {
+    $allHeaders = getallheaders();
+    foreach ($allHeaders as $k => $v) {
+        if (strtolower($k) === 'x-webhook-signature') {
+            $sig = $v;
+            break;
+        }
+    }
+}
+
 if (!Auth::verifyWebhookSignature($raw, $sig)) {
-    AppLogger::warn('webhook_bad_signature', ['ip' => client_ip(), 'event' => $eventType], 'webhook');
+    // Log what we received for debugging
+    AppLogger::warn('webhook_bad_signature', [
+        'ip' => client_ip(),
+        'event' => $eventType,
+        'sig_length' => strlen($sig),
+        'has_sig' => $sig !== '',
+    ], 'webhook');
     http_response_code(401);
     echo json_encode(['ok' => false, 'error' => 'bad_signature']);
     exit;
