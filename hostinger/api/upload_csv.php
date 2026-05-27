@@ -59,11 +59,43 @@ AppLogger::info('csv_imported', [
     'import_id' => $importId, 'inserted' => $inserted, 'duplicates' => $duplicates, 'failed' => $failed
 ], 'import');
 
+// Auto-validate all newly imported pending leads immediately
+$validated = 0; $deleted = 0;
+if ($inserted > 0) {
+    $pendingLeads = LeadRepository::pickPendingValidation(200);
+    if ($pendingLeads) {
+        $phones = array_column($pendingLeads, 'phone_e164');
+        $resp = NodeClient::checkBatch($phones);
+        if (!empty($resp['ok']) && !empty($resp['results'])) {
+            foreach ($resp['results'] as $r) {
+                $phone = $r['phone'] ?? null;
+                $status = $r['status'] ?? null;
+                if (!$phone || !$status) continue;
+                $lead = LeadRepository::findByPhone($phone);
+                if (!$lead) continue;
+                if ($status === 'valid') {
+                    LeadRepository::setWhatsappStatus((int)$lead['id'], 'valid');
+                    $validated++;
+                } else {
+                    // Not on WhatsApp — delete the lead
+                    DB::execute('DELETE FROM leads WHERE id = ?', [$lead['id']]);
+                    $deleted++;
+                }
+            }
+        }
+        AppLogger::info('csv_auto_validate', [
+            'validated' => $validated, 'deleted' => $deleted
+        ], 'import');
+    }
+}
+
 json_ok([
     'import_id'  => $importId,
     'total'      => $parsed['total'],
     'inserted'   => $inserted,
     'duplicates' => $duplicates,
     'failed'     => $failed,
+    'validated'  => $validated,
+    'deleted_invalid' => $deleted,
     'errors'     => array_slice($errors, 0, 20),
 ]);
