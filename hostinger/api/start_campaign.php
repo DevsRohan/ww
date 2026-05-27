@@ -1,13 +1,20 @@
 <?php
+/**
+ * Start Campaign — marks leads as queued AND immediately sends first batch.
+ * No longer depends on cron for sending — sends directly from this endpoint.
+ */
 require_once __DIR__ . '/../config/bootstrap.php';
 Auth::requireApi();
+set_time_limit(300);
 
 $body = read_json_body();
 $name = trim((string)($body['name'] ?? ('Campaign ' . date('d M H:i'))));
 
-// Sync delays to engine
-$min = (int)($GLOBALS['APP']['campaign']['min_delay'] ?? 120);
-$max = (int)($GLOBALS['APP']['campaign']['max_delay'] ?? 300);
+$cfg = $GLOBALS['APP']['campaign'];
+$min = (int)($cfg['min_delay'] ?? 120);
+$max = (int)($cfg['max_delay'] ?? 300);
+
+// Sync delays to engine + resume queue
 NodeClient::setQueueDelays($min * 1000, $max * 1000);
 NodeClient::resumeQueue();
 
@@ -19,7 +26,7 @@ DB::execute(
        AND last_outbound_at IS NULL'
 );
 
-// Count actual queued leads (don't rely on rowCount which returns 0 when value unchanged)
+// Count queued leads
 $countRow = DB::fetch(
     'SELECT COUNT(*) AS c FROM leads
      WHERE whatsapp_status = "valid"
@@ -28,16 +35,73 @@ $countRow = DB::fetch(
 );
 $queued = (int)($countRow['c'] ?? 0);
 
+// Create campaign record
 $campaignId = DB::insert(
     'INSERT INTO campaigns (name, status, total_leads, daily_limit, min_delay_seconds, max_delay_seconds, started_at)
      VALUES (?, "running", ?, ?, ?, ?, NOW())',
-    [
-        $name,
-        $queued,
-        (int)($GLOBALS['APP']['campaign']['daily_limit'] ?? 60),
-        $min, $max
-    ]
+    [$name, $queued, (int)($cfg['daily_limit'] ?? 60), $min, $max]
 );
 
-AppLogger::info('campaign_started', ['campaign_id' => $campaignId, 'queued' => $queued], 'campaign');
-json_ok(['campaign_id' => $campaignId, 'queued' => $queued]);
+// === DIRECTLY SEND FIRST BATCH (don't wait for cron) ===
+$batch = min(5, $queued);
+$picked = 0; $errors = 0; $sent = 0;
+
+if ($batch > 0) {
+    $rows = DB::fetchAll(
+        "SELECT id FROM leads
+         WHERE whatsapp_status = 'valid'
+           AND outreach_status = 'queued'
+           AND last_outbound_at IS NULL
+         ORDER BY id ASC LIMIT " . (int)$batch
+    );
+    foreach ($rows as $r) {
+        DB::execute("UPDATE leads SET outreach_status = 'sending', updated_at = NOW() WHERE id = ?", [$r['id']]);
+    }
+    $picked = count($rows);
+
+    $leads = DB::fetchAll("SELECT * FROM leads WHERE outreach_status = 'sending' ORDER BY updated_at DESC LIMIT " . (int)$batch);
+    foreach ($leads as $lead) {
+        try {
+            $existingMsg = DB::fetch(
+                "SELECT id FROM messages WHERE lead_id = ? AND is_first_outreach = 1 AND status IN ('sent','delivered','read') LIMIT 1",
+                [$lead['id']]
+            );
+            if ($existingMsg) {
+                LeadRepository::setOutreachStatus((int)$lead['id'], 'sent');
+                LeadRepository::markOutbound((int)$lead['id']);
+                continue;
+            }
+
+            $gen = Groq::generateOutreach($lead);
+            $message = $gen['message'];
+            $jobId = uuid_v4();
+
+            $msgId = MessageRepository::recordOutbound((int)$lead['id'], $message, null, 'queued', true, 'campaign', [
+                'jobId' => $jobId, 'used_fallback' => $gen['used_fallback']
+            ]);
+
+            $resp = NodeClient::sendMessage($lead['phone_e164'], $message, false, [
+                'lead_id' => (int)$lead['id'],
+                'message_id' => $msgId,
+                'jobId' => $jobId,
+                'mode' => 'campaign',
+            ]);
+
+            if (empty($resp['ok'])) {
+                $errors++;
+                LeadRepository::setOutreachStatus((int)$lead['id'], 'failed');
+                AppLogger::warn('campaign_send_failed', ['lead_id' => $lead['id'], 'resp' => $resp], 'campaign');
+            } else {
+                $sent++;
+                LeadRepository::setOutreachStatus((int)$lead['id'], 'queued');
+            }
+        } catch (\Throwable $e) {
+            $errors++;
+            LeadRepository::setOutreachStatus((int)$lead['id'], 'failed');
+            AppLogger::error('campaign_send_error', ['lead_id' => $lead['id'], 'err' => $e->getMessage()], 'campaign');
+        }
+    }
+}
+
+AppLogger::info('campaign_started', ['campaign_id' => $campaignId, 'queued' => $queued, 'sent_now' => $sent, 'errors' => $errors], 'campaign');
+json_ok(['campaign_id' => $campaignId, 'queued' => $queued, 'sent_now' => $sent, 'errors' => $errors]);
