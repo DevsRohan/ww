@@ -16,7 +16,7 @@ return [
     // Brand / UI
     'app_name'     => 'WhatsApp CRM',
     'app_tagline'  => 'Cold Outreach Operating System',
-    'app_version'  => '1.0.0',
+    'app_version'  => '1.1.0',
 
     // Environment
     'env'          => 'production', // production | development
@@ -70,8 +70,8 @@ return [
         'max_delay'    => 300,
         'daily_limit'  => 60,
         'batch_size'   => 5,
-        'active_start' => 10, // 10 AM
-        'active_end'   => 20, // 8  PM
+        'active_start' => 6,  // 6 AM
+        'active_end'   => 23, // 11 PM
     ],
 
     // Retry policy

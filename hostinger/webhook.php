@@ -109,24 +109,40 @@ function handle_inbound_message(array $p): void
 {
     $from = (string)($p['from'] ?? '');
     if (!$from) return;
+
+    // Safety: strip non-digits first, reject if not a valid phone length
+    $fromDigits = preg_replace('/\D+/', '', $from);
+    if (!$fromDigits || strlen($fromDigits) < 10 || strlen($fromDigits) > 15) return;
+
+    // Additional check: reject numbers that don't start with valid country codes
+    // (prevents WA message IDs from being treated as phone numbers)
+    $firstDigit = $fromDigits[0] ?? '0';
+    if ($firstDigit === '0') return; // no valid E.164 starts with 0 after normalization
+
     $phoneE164 = normalize_phone($from);
     if (!$phoneE164) return;
 
     // Ignore messages from own WhatsApp number (outbound echo)
     $engineCache = SettingsRepository::get('engine_status_cache');
     if (is_string($engineCache)) $engineCache = json_decode($engineCache, true);
-    $ownWid = $engineCache['info']['wid']['user'] ?? ($engineCache['info']['me']['user'] ?? null);
-    if ($ownWid && $phoneE164 === (string)$ownWid) return;
+    if (is_array($engineCache)) {
+        $ownWid = $engineCache['info']['wid']['user'] ?? ($engineCache['info']['me']['user'] ?? null);
+        if ($ownWid && $phoneE164 === (string)$ownWid) return;
+        // Also check last 10 digits match (some formats differ)
+        if ($ownWid && substr($phoneE164, -10) === substr((string)$ownWid, -10)) return;
+    }
 
     // Try exact match first, then try LIKE match with last 10 digits
     $lead = LeadRepository::findByPhone($phoneE164);
     if (!$lead) {
-        // Try matching by last 10 digits (handles country code format differences)
         $last10 = substr($phoneE164, -10);
-        $lead = DB::fetch('SELECT * FROM leads WHERE phone_e164 LIKE ? LIMIT 1', ['%' . $last10]);
+        $lead = DB::fetch('SELECT * FROM leads WHERE phone_e164 LIKE ? AND source != "inbound_unknown" LIMIT 1', ['%' . $last10]);
     }
     if (!$lead) {
-        // Unknown lead — create minimal record so we don't drop the message
+        // Only create unknown lead if this looks like a real Indian/international number
+        // Skip if number doesn't match any known country code pattern
+        if (strlen($phoneE164) > 13) return; // too long — likely corrupted
+
         $created = LeadRepository::upsert([
             'business_name' => 'Unknown (' . format_phone_display($phoneE164) . ')',
             'phone_number'  => $from,
