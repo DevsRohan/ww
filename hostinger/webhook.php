@@ -102,10 +102,20 @@ function handle_inbound(array $p): void
     $lead = LeadRepository::findByPhone($phoneE164);
     if (!$lead) {
         $last10 = substr($phoneE164, -10);
-        $lead = DB::fetch('SELECT * FROM leads WHERE phone_e164 LIKE ? LIMIT 1', ['%' . $last10]);
+        $lead = DB::fetch("SELECT * FROM leads WHERE phone_e164 LIKE ? LIMIT 1", ['%' . $last10]);
+    }
+    // smba: if from is own number, use to field to find lead
+    if (!$lead && isset($p['to'])) {
+        $toE164 = normalize_phone((string)$p['to']);
+        if ($toE164) {
+            $lead = LeadRepository::findByPhone($toE164);
+            if (!$lead) {
+                $lead = DB::fetch("SELECT * FROM leads WHERE phone_e164 LIKE ? LIMIT 1", ['%' . substr($toE164, -10)]);
+            }
+        }
     }
     if (!$lead) {
-        AppLogger::info('inbound_no_lead', ['from' => $phoneE164], 'webhook');
+        AppLogger::info('inbound_no_lead', ['from' => $phoneE164, 'to' => $p['to'] ?? ''], 'webhook');
         return;
     }
 
