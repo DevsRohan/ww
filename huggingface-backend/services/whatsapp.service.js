@@ -196,8 +196,8 @@ class WhatsAppService {
           ack: msg.ack ?? null,
         };
         socketService.emit(EVENTS.MESSAGE_OUTBOUND, payload);
-        // We do NOT webhook every fromMe to avoid duplicates with sendMessage path,
-        // but we do ack updates below.
+        // Also webhook outbound so PHP dashboard shows phone-sent messages
+        await webhookService.dispatch('outbound_message', payload);
       } catch (err) {
         logger.error('outbound create handler failed', { err: err.message });
       }

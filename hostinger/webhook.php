@@ -61,6 +61,9 @@ try {
         case 'outbound_status':
             handle_outbound($payload);
             break;
+        case 'outbound_message':
+            handle_outbound_message($payload);
+            break;
         case 'connection_state':
         case 'qr_updated':
         case 'engine_health':
@@ -114,6 +117,11 @@ function handle_inbound(array $p): void
             }
         }
     }
+    // smba fallback: if still no lead, find last lead we messaged
+    if (!$lead) {
+        $lastMsg = DB::fetch("SELECT lead_id FROM messages WHERE direction = 'outbound' AND lead_id IS NOT NULL ORDER BY id DESC LIMIT 1");
+        if ($lastMsg) $lead = LeadRepository::findById((int)$lastMsg['lead_id']);
+    }
     if (!$lead) {
         AppLogger::info('inbound_no_lead', ['from' => $phoneE164, 'to' => $p['to'] ?? ''], 'webhook');
         return;
@@ -165,4 +173,35 @@ function handle_validated(array $p): void
     if (!$lead) return;
     LeadRepository::setWhatsappStatus((int)$lead['id'], $status);
     if ($status === 'not_on_whatsapp') LeadRepository::setOutreachStatus((int)$lead['id'], 'skipped');
+}
+
+function handle_outbound_message(array $p): void
+{
+    $to = (string)($p['to'] ?? '');
+    if (!$to) return;
+    $toE164 = normalize_phone($to);
+    if (!$toE164) return;
+    if (strlen($toE164) > 13) return;
+
+    $lead = LeadRepository::findByPhone($toE164);
+    if (!$lead) {
+        $last10 = substr($toE164, -10);
+        $lead = DB::fetch('SELECT * FROM leads WHERE phone_e164 LIKE ? LIMIT 1', ['%' . $last10]);
+    }
+    if (!$lead) return;
+
+    $waId = $p['wa_message_id'] ?? null;
+    $text = (string)($p['body'] ?? '');
+    if (!$text) return;
+    $ts = isset($p['timestamp']) ? (int)round(((int)$p['timestamp']) / 1000) : null;
+
+    // Don't duplicate — check if this wa_message_id already exists
+    if ($waId) {
+        $existing = MessageRepository::findByWaId($waId);
+        if ($existing) return;
+    }
+
+    MessageRepository::recordOutbound((int)$lead['id'], $text, $waId, 'sent', false, 'phone_app');
+    LeadRepository::markOutbound((int)$lead['id']);
+    AppLogger::info('outbound_from_phone', ['lead_id' => $lead['id'], 'to' => $toE164, 'text' => mb_substr($text, 0, 50)], 'webhook');
 }
