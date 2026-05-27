@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../config/bootstrap.php';
-Auth::requireApi();
+Auth::requireLogin();
 ?>
 <div class="p-8 max-w-7xl mx-auto">
   <div class="flex items-center justify-between mb-6">

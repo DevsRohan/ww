@@ -19,13 +19,14 @@
     const type = r.setting_type;
     const val = r.setting_value || '';
     if (type === 'bool') {
+      const checked = (val == 1 || val === '1' || val === true);
       return `
         <label class="inline-flex items-center cursor-pointer gap-2">
-          <input type="checkbox" data-key="${escape(key)}" data-type="bool" ${(val == 1 || val === '1' || val === true) ? 'checked' : ''} class="sr-only peer"/>
-          <span class="w-9 h-5 rounded-full bg-ink-200 relative peer-checked:bg-brand-500 transition">
-            <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-soft transition peer-checked:translate-x-4"></span>
+          <input type="checkbox" data-key="${escape(key)}" data-type="bool" ${checked ? 'checked' : ''} class="sr-only toggle-input"/>
+          <span class="relative w-9 h-5 rounded-full ${checked ? 'bg-brand-500' : 'bg-ink-200'} transition toggle-track">
+            <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-soft transition toggle-dot ${checked ? 'translate-x-4' : ''}"></span>
           </span>
-          <span class="text-xs text-ink-500">${(val == 1 || val === '1') ? 'On' : 'Off'}</span>
+          <span class="text-xs text-ink-500 toggle-label">${checked ? 'On' : 'Off'}</span>
         </label>`;
     }
     if (type === 'int') {
@@ -109,6 +110,25 @@
     document.addEventListener('click', (e) => {
       if (e.target.id === 'settings-save') save();
       if (e.target.id === 'settings-reload') load();
+    });
+    // Toggle switch visual state on change
+    document.addEventListener('change', (e) => {
+      if (e.target.classList.contains('toggle-input')) {
+        const label = e.target.closest('label');
+        if (!label) return;
+        const track = label.querySelector('.toggle-track');
+        const dot = label.querySelector('.toggle-dot');
+        const lbl = label.querySelector('.toggle-label');
+        if (e.target.checked) {
+          track.classList.remove('bg-ink-200'); track.classList.add('bg-brand-500');
+          dot.classList.add('translate-x-4');
+          if (lbl) lbl.textContent = 'On';
+        } else {
+          track.classList.add('bg-ink-200'); track.classList.remove('bg-brand-500');
+          dot.classList.remove('translate-x-4');
+          if (lbl) lbl.textContent = 'Off';
+        }
+      }
     });
   }
 

@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../config/bootstrap.php';
-Auth::requireApi();
+Auth::requireLogin();
 
 $stats = LeadRepository::stats();
 $byState = DB::fetchAll("SELECT state, COUNT(*) AS c FROM leads WHERE state IS NOT NULL AND state <> '' GROUP BY state ORDER BY c DESC LIMIT 12");

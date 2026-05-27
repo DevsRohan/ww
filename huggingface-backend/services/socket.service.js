@@ -68,7 +68,7 @@ function startHeartbeat(getStatusFn) {
     const status = typeof getStatusFn === 'function' ? getStatusFn() : {};
     emit(constants.EVENTS.SYSTEM_HEARTBEAT, {
       ts: Date.now(),
-      ...status,
+      whatsapp: status,
     });
   }, 15000);
 }

@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/config/bootstrap.php';
-Auth::require();
+Auth::requireLogin();
 $pageTitle = 'Inbox';
 ?>
 <?php require_once __DIR__ . '/includes/header.php'; ?>

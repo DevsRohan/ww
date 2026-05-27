@@ -9,6 +9,9 @@ $action = $body['action'] ?? 'add';
 if ($leadId <= 0 || $tag === '') json_fail('lead_id_and_tag_required');
 $tag = mb_substr($tag, 0, 40);
 
+$lead = LeadRepository::findById($leadId);
+if (!$lead) json_fail('lead_not_found', 404);
+
 if ($action === 'remove') LeadRepository::removeTag($leadId, $tag);
 else                       LeadRepository::addTag($leadId, $tag);
 

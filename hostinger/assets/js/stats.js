@@ -14,7 +14,8 @@
     const map = ['total_leads','valid_leads','invalid_leads','pending_leads','sent_count','replied_count','queued_count','sent_today','unread_total'];
     map.forEach(k => {
       document.querySelectorAll(`[data-stat="${k}"]`).forEach(el => {
-        animateNumber(el, parseInt(el.textContent || '0', 10) || 0, parseInt(r[k] ?? 0, 10));
+        const from = parseInt(el.textContent, 10);
+        animateNumber(el, isNaN(from) ? 0 : from, parseInt(r[k] ?? 0, 10));
       });
     });
     const unreadEl = document.querySelector('[data-stat="unread_total"]');

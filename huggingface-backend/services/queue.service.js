@@ -44,6 +44,7 @@ class QueueService {
 
   pause() {
     this.running = false;
+    socket.emit(constants.EVENTS.QUEUE_TICK, this.snapshot());
   }
 
   clear() {
@@ -65,7 +66,7 @@ class QueueService {
   async _tick() {
     this.processing = true;
     try {
-      while (this.queue.length > 0) {
+      while (this.queue.length > 0 && this.running) {
         const job = this.queue.shift();
         socket.emit(constants.EVENTS.QUEUE_TICK, this.snapshot());
 

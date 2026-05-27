@@ -14,8 +14,8 @@ function sanitize_text($value): string {
     if ($value === null) return '';
     $value = (string)$value;
     $value = trim($value);
-    $value = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $value);
-    return $value ?? '';
+    $result = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $value);
+    return $result !== null ? $result : $value;
 }
 
 function sanitize_int($value, int $default = 0): int {
