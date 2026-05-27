@@ -11,11 +11,12 @@ $max = (int)($GLOBALS['APP']['campaign']['max_delay'] ?? 300);
 NodeClient::setQueueDelays($min * 1000, $max * 1000);
 NodeClient::resumeQueue();
 
-// Mark all eligible leads as queued
+// Mark all eligible leads as queued (includes leads that were queued before but never actually sent)
 $rows = DB::execute(
     'UPDATE leads SET outreach_status = "queued"
      WHERE whatsapp_status = "valid"
-       AND outreach_status IN ("new","failed")'
+       AND outreach_status IN ("new","failed","queued")
+       AND last_outbound_at IS NULL'
 );
 
 $campaignId = DB::insert(
