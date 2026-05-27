@@ -71,8 +71,14 @@ $leads = $picked > 0 ? DB::fetchAll(
 
 foreach ($leads as $lead) {
     try {
-        if (MessageRepository::alreadyOutreached((int)$lead['id'])) {
+        // Skip only if message was already SENT (not just queued)
+        $existingMsg = DB::fetch(
+            "SELECT id, status FROM messages WHERE lead_id = ? AND is_first_outreach = 1 AND status IN ('sent','delivered','read') LIMIT 1",
+            [$lead['id']]
+        );
+        if ($existingMsg) {
             LeadRepository::setOutreachStatus((int)$lead['id'], 'sent');
+            LeadRepository::markOutbound((int)$lead['id']);
             continue;
         }
         $gen = Groq::generateOutreach($lead);

@@ -2,7 +2,7 @@
 (function () {
   let currentLead = null;
   let messages = [];
-  let loadingLead = false;
+  let currentLoadId = 0; // track latest load request
 
   const $ = (id) => document.getElementById(id);
 
@@ -85,9 +85,13 @@
   }
 
   async function openLead(id) {
-    loadingLead = true;
+    // Use load ID to handle race conditions — only latest request wins
+    const myLoadId = ++currentLoadId;
     try {
       const r = await API.get('/get_messages.php', { lead_id: id });
+      // If another openLead was called while we were waiting, discard this result
+      if (myLoadId !== currentLoadId) return;
+
       currentLead = r.lead;
       messages = r.messages || [];
 
@@ -103,9 +107,9 @@
       try { await API.post('/mark_read.php', { lead_id: id }); } catch (_) {}
       STATS.refresh();
     } catch (e) {
+      if (myLoadId !== currentLoadId) return; // stale request, ignore
       UI.toast('Failed to load chat — click again', { kind: 'error' });
     }
-    loadingLead = false;
   }
 
   function appendMessage(m) {
@@ -173,11 +177,6 @@
     } catch (e) { UI.toast('Pin failed', { kind: 'error' }); }
   }
 
-  // Get own WhatsApp number to filter out self-messages
-  function getOwnNumber() {
-    return (window.__APP__ && window.__APP__._ownWaNumber) || '';
-  }
-
   function init() {
     const form = $('composer-form');
     if (form) form.addEventListener('submit', (e) => { e.preventDefault(); sendManual(); });
@@ -197,33 +196,16 @@
       if (e.target.closest('#btn-details')) DETAILS.open(currentLead?.id);
     });
 
-    // Cache own number from engine status for filtering
-    SOCK.on('system:heartbeat', (p) => {
-      if (p && p.whatsapp && p.whatsapp.info && p.whatsapp.info.wid) {
-        window.__APP__._ownWaNumber = p.whatsapp.info.wid.user || '';
-      }
-    });
-
+    // Ignore ALL inbound socket events for message:inbound
+    // Replies are handled by webhook → DB → next page refresh/lead open
+    // This prevents fake "Unknown" messages from appearing in realtime
     SOCK.on('message:inbound', (p) => {
-      if (!p) return;
-      const fromDigits = (p.from || '').replace(/\D/g, '');
-      // Ignore messages from own number (these are outbound echoes)
-      const ownNum = getOwnNumber();
-      if (ownNum && fromDigits === ownNum) return;
-
-      if (currentLead && currentLead.phone_e164 === fromDigits) {
-        appendMessage({
-          id: 'tmp_' + Date.now(),
-          lead_id: currentLead.id,
-          direction: 'inbound',
-          message_text: p.body || '',
-          status: 'received',
-          wa_message_id: p.wa_message_id,
-          timestamp: new Date(p.timestamp || Date.now()).toISOString().slice(0, 19).replace('T', ' '),
-        });
-        API.post('/mark_read.php', { lead_id: currentLead.id }).catch(() => {});
-      }
+      // Only refresh lead list to show unread badge — don't inject message into chat
+      // (the message is already saved in DB by webhook, will show on next openLead)
+      LEADS.load(false);
+      STATS.refresh();
     });
+
     SOCK.on('message:outbound', (p) => {
       if (!p || !currentLead) return;
       const toDigits = (p.to || '').replace(/\D/g, '');
