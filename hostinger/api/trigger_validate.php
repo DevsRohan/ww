@@ -1,7 +1,7 @@
 <?php
 /**
  * Trigger validation of all pending leads.
- * Can be called from dashboard or via cron URL.
+ * Can be called from dashboard browser console.
  */
 require_once __DIR__ . '/../config/bootstrap.php';
 Auth::requireApi();
@@ -11,31 +11,22 @@ if (!$rows) {
     json_ok(['message' => 'no_pending_leads', 'validated' => 0, 'deleted' => 0]);
 }
 
-$phones = array_column($rows, 'phone_e164');
-$resp = NodeClient::checkBatch($phones);
-
-if (empty($resp['ok'])) {
-    json_fail($resp['error'] ?? 'engine_check_failed', 502, ['detail' => $resp]);
-}
-
-$results = $resp['results'] ?? [];
 $valid = 0; $deleted = 0; $failed = 0;
 
-foreach ($results as $r) {
-    $phone = $r['phone'] ?? null;
-    $status = $r['status'] ?? null;
-    if (!$phone || !$status) { $failed++; continue; }
-    $lead = LeadRepository::findByPhone($phone);
-    if (!$lead) { $failed++; continue; }
+foreach ($rows as $row) {
+    $resp = NodeClient::checkNumber($row['phone_e164']);
+    if (empty($resp['ok'])) { $failed++; continue; }
+
+    $status = $resp['result']['status'] ?? 'failed';
 
     if ($status === 'valid') {
-        LeadRepository::setWhatsappStatus((int)$lead['id'], 'valid');
+        LeadRepository::setWhatsappStatus((int)$row['id'], 'valid');
         $valid++;
     } else {
         // Not on WhatsApp — delete the lead
-        DB::execute('DELETE FROM messages WHERE lead_id = ?', [$lead['id']]);
-        DB::execute('DELETE FROM activity_log WHERE lead_id = ?', [$lead['id']]);
-        DB::execute('DELETE FROM leads WHERE id = ?', [$lead['id']]);
+        DB::execute('DELETE FROM messages WHERE lead_id = ?', [$row['id']]);
+        DB::execute('DELETE FROM activity_log WHERE lead_id = ?', [$row['id']]);
+        DB::execute('DELETE FROM leads WHERE id = ?', [$row['id']]);
         $deleted++;
     }
 }
@@ -46,5 +37,5 @@ json_ok([
     'validated' => $valid,
     'deleted_invalid' => $deleted,
     'failed' => $failed,
-    'total_checked' => count($results),
+    'total_checked' => count($rows),
 ]);

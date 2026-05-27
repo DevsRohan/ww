@@ -64,23 +64,19 @@ $validated = 0; $deleted = 0;
 if ($inserted > 0) {
     $pendingLeads = LeadRepository::pickPendingValidation(200);
     if ($pendingLeads) {
-        $phones = array_column($pendingLeads, 'phone_e164');
-        $resp = NodeClient::checkBatch($phones);
-        if (!empty($resp['ok']) && !empty($resp['results'])) {
-            foreach ($resp['results'] as $r) {
-                $phone = $r['phone'] ?? null;
-                $status = $r['status'] ?? null;
-                if (!$phone || !$status) continue;
-                $lead = LeadRepository::findByPhone($phone);
-                if (!$lead) continue;
-                if ($status === 'valid') {
-                    LeadRepository::setWhatsappStatus((int)$lead['id'], 'valid');
-                    $validated++;
-                } else {
-                    // Not on WhatsApp — delete the lead
-                    DB::execute('DELETE FROM leads WHERE id = ?', [$lead['id']]);
-                    $deleted++;
-                }
+        foreach ($pendingLeads as $pl) {
+            $resp = NodeClient::checkNumber($pl['phone_e164']);
+            if (empty($resp['ok'])) continue;
+            $status = $resp['result']['status'] ?? 'failed';
+            if ($status === 'valid') {
+                LeadRepository::setWhatsappStatus((int)$pl['id'], 'valid');
+                $validated++;
+            } else {
+                // Not on WhatsApp — delete the lead
+                DB::execute('DELETE FROM messages WHERE lead_id = ?', [$pl['id']]);
+                DB::execute('DELETE FROM activity_log WHERE lead_id = ?', [$pl['id']]);
+                DB::execute('DELETE FROM leads WHERE id = ?', [$pl['id']]);
+                $deleted++;
             }
         }
         AppLogger::info('csv_auto_validate', [

@@ -80,7 +80,7 @@ class NodeClient
 
     private static function timeout(): int
     {
-        return (int)($GLOBALS['APP']['node']['timeout'] ?? 20);
+        return (int)($GLOBALS['APP']['node']['timeout'] ?? 120);
     }
 
     private static function get(string $path): array
