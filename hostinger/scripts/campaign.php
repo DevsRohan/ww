@@ -19,13 +19,13 @@ if (PHP_SAPI !== 'cli') {
     require_once __DIR__ . '/../config/bootstrap.php';
 }
 
-set_time_limit(0);
+set_time_limit(300);
 
 $cfg = $GLOBALS['APP']['campaign'];
 $now = (int)date('G');
 if ($now < $cfg['active_start'] || $now >= $cfg['active_end']) {
     echo "[" . date('c') . "] outside active hours ({$cfg['active_start']}-{$cfg['active_end']}), skipping.\n";
-    if (PHP_SAPI !== 'cli') json_ok(['skipped' => 'outside_active_hours']);
+    if (PHP_SAPI !== 'cli') json_ok(['skipped' => 'outside_active_hours', 'current_hour' => $now]);
     return;
 }
 

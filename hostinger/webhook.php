@@ -112,7 +112,13 @@ function handle_inbound_message(array $p): void
     $phoneE164 = normalize_phone($from);
     if (!$phoneE164) return;
 
+    // Try exact match first, then try LIKE match with last 10 digits
     $lead = LeadRepository::findByPhone($phoneE164);
+    if (!$lead) {
+        // Try matching by last 10 digits (handles country code format differences)
+        $last10 = substr($phoneE164, -10);
+        $lead = DB::fetch('SELECT * FROM leads WHERE phone_e164 LIKE ? LIMIT 1', ['%' . $last10]);
+    }
     if (!$lead) {
         // Unknown lead — create minimal record so we don't drop the message
         $created = LeadRepository::upsert([

@@ -2,6 +2,7 @@
 (function () {
   let currentLead = null;
   let messages = [];
+  let loadingLead = false;
 
   const $ = (id) => document.getElementById(id);
 
@@ -84,6 +85,9 @@
   }
 
   async function openLead(id) {
+    // Prevent race condition — if already loading, abort silently
+    if (loadingLead) return;
+    loadingLead = true;
     try {
       const r = await API.get('/get_messages.php', { lead_id: id });
       currentLead = r.lead;
@@ -102,7 +106,24 @@
       try { await API.post('/mark_read.php', { lead_id: id }); } catch (_) {}
       STATS.refresh();
     } catch (e) {
-      UI.toast('Failed to load chat', { kind: 'error' });
+      // Retry once automatically instead of showing error
+      try {
+        const r = await API.get('/get_messages.php', { lead_id: id });
+        currentLead = r.lead;
+        messages = r.messages || [];
+        $('chat-empty').classList.add('hidden');
+        $('chat-title').textContent = currentLead.business_name;
+        $('chat-subtitle').textContent = `${currentLead.phone_display} • ${currentLead.outreach_status}`;
+        $('chat-avatar').textContent = (currentLead.business_name || '?').charAt(0).toUpperCase();
+        $('chat-composer').classList.remove('hidden');
+        $('btn-details').classList.remove('hidden');
+        $('btn-pin').classList.remove('hidden');
+        renderMessages();
+      } catch (e2) {
+        UI.toast('Failed to load chat — try again', { kind: 'error' });
+      }
+    } finally {
+      loadingLead = false;
     }
   }
 
@@ -193,7 +214,9 @@
 
     SOCK.on('message:inbound', (p) => {
       if (!p) return;
-      if (currentLead && (currentLead.phone_e164 || '').endsWith((p.from || '').replace(/\D/g, ''))) {
+      // Match by phone number (strip non-digits for comparison)
+      const fromDigits = (p.from || '').replace(/\D/g, '');
+      if (currentLead && currentLead.phone_e164 === fromDigits) {
         appendMessage({
           id: 'tmp_' + Date.now(),
           lead_id: currentLead.id,
@@ -209,7 +232,8 @@
     });
     SOCK.on('message:outbound', (p) => {
       if (!p || !currentLead) return;
-      if ((currentLead.phone_e164 || '').endsWith((p.to || '').replace(/\D/g, ''))) {
+      const toDigits = (p.to || '').replace(/\D/g, '');
+      if (currentLead.phone_e164 === toDigits) {
         appendMessage({
           id: 'tmp_' + Date.now(),
           lead_id: currentLead.id,
