@@ -59,11 +59,54 @@ AppLogger::info('csv_imported', [
     'import_id' => $importId, 'inserted' => $inserted, 'duplicates' => $duplicates, 'failed' => $failed
 ], 'import');
 
+// ---- Auto-validate freshly imported pending leads ----
+// If the engine is reachable, fire a batch number-check immediately so the
+// user does not have to wait for the validation cron. Best-effort; failures
+// here do not break the import response.
+$validated = 0;
+$invalidated = 0;
+$validationError = null;
+try {
+    $pending = DB::fetchAll(
+        "SELECT id, phone_e164 FROM leads
+         WHERE whatsapp_status = 'pending'
+         ORDER BY id DESC
+         LIMIT 50"
+    );
+    if (!empty($pending)) {
+        $phones = array_column($pending, 'phone_e164');
+        $resp = NodeClient::checkBatch($phones);
+        if (!empty($resp['ok']) && !empty($resp['results']) && is_array($resp['results'])) {
+            foreach ($resp['results'] as $r) {
+                $phone = $r['phone'] ?? null;
+                $status = $r['status'] ?? null;
+                if (!$phone || !$status) continue;
+                $lead = LeadRepository::findByPhone($phone);
+                if (!$lead) continue;
+                LeadRepository::setWhatsappStatus((int)$lead['id'], $status);
+                if ($status === 'valid') $validated++;
+                else if ($status === 'not_on_whatsapp') {
+                    LeadRepository::setOutreachStatus((int)$lead['id'], 'skipped');
+                    $invalidated++;
+                }
+            }
+        } else {
+            $validationError = $resp['error'] ?? 'engine_unreachable';
+        }
+    }
+} catch (\Throwable $e) {
+    $validationError = $e->getMessage();
+    AppLogger::warn('csv_post_validate_failed', ['err' => $e->getMessage()], 'import');
+}
+
 json_ok([
     'import_id'  => $importId,
     'total'      => $parsed['total'],
     'inserted'   => $inserted,
     'duplicates' => $duplicates,
     'failed'     => $failed,
+    'validated_now' => $validated,
+    'invalidated_now' => $invalidated,
+    'validation_error' => $validationError,
     'errors'     => array_slice($errors, 0, 20),
 ]);

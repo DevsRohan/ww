@@ -39,7 +39,15 @@ foreach ($updates as $key => $value) {
     $type = $allowed[$key];
 
     // Skip empty secrets to preserve existing
-    if ($type === 'secret' && (string)$value === '') continue;
+    if ($type === 'secret') {
+        if (!is_string($value) || trim($value) === '') continue;
+        // Trim whitespace/newlines that often slip in via copy-paste so the
+        // stored secret matches what the operator pasted on the HF side.
+        $value = trim($value);
+    }
+    if ($type === 'string') {
+        $value = is_string($value) ? trim($value) : $value;
+    }
     if ($type === 'bool')  $value = !empty($value) ? 1 : 0;
     if ($type === 'int')   $value = (int)$value;
 

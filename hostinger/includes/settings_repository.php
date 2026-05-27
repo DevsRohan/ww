@@ -68,13 +68,16 @@ class SettingsRepository
     public static function adminAll(): array
     {
         $rows = DB::fetchAll('SELECT setting_key, setting_value, setting_type, is_public, description FROM settings ORDER BY setting_key');
-        // Mask secrets in display
+        // Mask secrets in display, also expose length so the operator can
+        // verify the secret matches what's set on the HF Space side.
         foreach ($rows as &$r) {
-            if ($r['setting_type'] === 'secret' && !empty($r['setting_value'])) {
-                $r['setting_value'] = self::maskSecret((string)$r['setting_value']);
-                $r['is_secret'] = true;
-            } else {
-                $r['is_secret'] = $r['setting_type'] === 'secret';
+            $r['is_secret'] = $r['setting_type'] === 'secret';
+            if ($r['setting_type'] === 'secret') {
+                $rawLen = strlen((string)($r['setting_value'] ?? ''));
+                $r['secret_length'] = $rawLen;
+                if ($rawLen > 0) {
+                    $r['setting_value'] = self::maskSecret((string)$r['setting_value']);
+                }
             }
         }
         return $rows;

@@ -32,7 +32,9 @@
       return `<input type="number" data-key="${escape(key)}" data-type="int" value="${escape(val)}" class="input text-sm w-40"/>`;
     }
     if (type === 'secret') {
-      return `<input type="password" data-key="${escape(key)}" data-type="secret" placeholder="${escape(val) || 'unset'}" class="input text-sm" autocomplete="new-password"/>`;
+      const len = r.secret_length || 0;
+      const ph = len > 0 ? `${val} (${len} chars — leave blank to keep)` : 'unset';
+      return `<input type="password" data-key="${escape(key)}" data-type="secret" placeholder="${escape(ph)}" class="input text-sm" autocomplete="new-password"/>`;
     }
     return `<input type="text" data-key="${escape(key)}" data-type="${escape(type)}" value="${escape(val)}" class="input text-sm"/>`;
   }

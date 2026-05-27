@@ -12,7 +12,27 @@ if ($leadId <= 0) json_fail('lead_id_required');
 
 $lead = LeadRepository::findById($leadId);
 if (!$lead) json_fail('lead_not_found', 404);
-if ($lead['whatsapp_status'] !== 'valid') json_fail('lead_not_valid', 422);
+
+// Auto-validate if the lead is still 'pending' so the user does not have to
+// wait for the validation cron. If invalid, surface a clear error.
+if ($lead['whatsapp_status'] === 'pending') {
+    $check = NodeClient::checkNumber($lead['phone_e164']);
+    if (empty($check['ok'])) {
+        json_fail('validation_failed', 502, ['detail' => $check]);
+    }
+    $newStatus = $check['result']['status'] ?? 'failed';
+    LeadRepository::setWhatsappStatus($leadId, $newStatus);
+    if ($newStatus !== 'valid') {
+        if ($newStatus === 'not_on_whatsapp') {
+            LeadRepository::setOutreachStatus($leadId, 'skipped');
+        }
+        json_fail('not_on_whatsapp', 422, ['validated' => $newStatus]);
+    }
+    $lead['whatsapp_status'] = 'valid';
+}
+
+if ($lead['whatsapp_status'] === 'not_on_whatsapp') json_fail('not_on_whatsapp', 422);
+if ($lead['whatsapp_status'] !== 'valid') json_fail('lead_not_valid', 422, ['current_status' => $lead['whatsapp_status']]);
 if (MessageRepository::alreadyOutreached((int)$lead['id'])) json_fail('already_outreached', 409);
 if (in_array($lead['outreach_status'], ['replied'], true)) json_fail('lead_replied_already', 409);
 
