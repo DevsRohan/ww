@@ -23,11 +23,8 @@ set_time_limit(300);
 
 $cfg = $GLOBALS['APP']['campaign'];
 $now = (int)date('G');
-if ($now < $cfg['active_start'] || $now >= $cfg['active_end']) {
-    echo "[" . date('c') . "] outside active hours ({$cfg['active_start']}-{$cfg['active_end']}), skipping.\n";
-    if (PHP_SAPI !== 'cli') json_ok(['skipped' => 'outside_active_hours', 'current_hour' => $now]);
-    return;
-}
+// Active hours check removed — campaigns run 24/7 now (controlled by start/pause button)
+// If you want hour restrictions, set campaign_active_hours_start and campaign_active_hours_end in settings
 
 // Daily cap
 $sentToday = LeadRepository::dailyOutboundCount();

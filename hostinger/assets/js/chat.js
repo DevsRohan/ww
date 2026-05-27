@@ -2,10 +2,9 @@
 (function () {
   let currentLead = null;
   let messages = [];
-  let currentLoadId = 0; // track latest load request
+  let currentLoadId = 0;
 
   const $ = (id) => document.getElementById(id);
-
   function escape(s) { return UI.escapeHtml(s); }
 
   function statusTick(status) {
@@ -40,8 +39,8 @@
     const body = $('chat-body');
     if (!body) return;
     if (!currentLead) {
-      $('chat-empty').classList.remove('hidden');
-      body.innerHTML = ''; body.appendChild($('chat-empty'));
+      const empty = $('chat-empty');
+      if (empty) empty.classList.remove('hidden');
       return;
     }
     if (!messages.length) {
@@ -85,30 +84,29 @@
   }
 
   async function openLead(id) {
-    // Use load ID to handle race conditions — only latest request wins
     const myLoadId = ++currentLoadId;
     try {
       const r = await API.get('/get_messages.php', { lead_id: id });
-      // If another openLead was called while we were waiting, discard this result
       if (myLoadId !== currentLoadId) return;
-
       currentLead = r.lead;
       messages = r.messages || [];
-
-      $('chat-empty').classList.add('hidden');
+      const empty = $('chat-empty');
+      if (empty) empty.classList.add('hidden');
       $('chat-title').textContent = currentLead.business_name;
       $('chat-subtitle').textContent = `${currentLead.phone_display} • ${currentLead.outreach_status}`;
       $('chat-avatar').textContent = (currentLead.business_name || '?').charAt(0).toUpperCase();
       $('chat-composer').classList.remove('hidden');
       $('btn-details').classList.remove('hidden');
       $('btn-pin').classList.remove('hidden');
-
       renderMessages();
-      try { await API.post('/mark_read.php', { lead_id: id }); } catch (_) {}
+      API.post('/mark_read.php', { lead_id: id }).catch(() => {});
       STATS.refresh();
     } catch (e) {
-      if (myLoadId !== currentLoadId) return; // stale request, ignore
-      UI.toast('Failed to load chat — click again', { kind: 'error' });
+      if (myLoadId !== currentLoadId) return;
+      // Don't show error toast — just silently retry once
+      setTimeout(() => {
+        if (currentLoadId === myLoadId) openLead(id);
+      }, 500);
     }
   }
 
@@ -122,10 +120,7 @@
 
   function updateStatus(waId, status) {
     const idx = messages.findIndex(m => m.wa_message_id === waId);
-    if (idx >= 0) {
-      messages[idx].status = status;
-      renderMessages();
-    }
+    if (idx >= 0) { messages[idx].status = status; renderMessages(); }
   }
 
   async function sendManual() {
@@ -137,40 +132,30 @@
       const r = await API.post('/send_manual.php', { lead_id: currentLead.id, message: text });
       ta.value = '';
       ta.style.height = '42px';
-      const optimistic = {
-        id: r.message_id,
-        lead_id: currentLead.id,
-        direction: 'outbound',
-        message_text: text,
-        status: r.status || 'sent',
-        wa_message_id: r.wa_message_id,
+      messages.push({
+        id: r.message_id, lead_id: currentLead.id, direction: 'outbound',
+        message_text: text, status: r.status || 'sent', wa_message_id: r.wa_message_id,
         timestamp: new Date().toISOString().slice(0, 19).replace('T', ' '),
-      };
-      messages.push(optimistic);
+      });
       renderMessages();
     } catch (e) {
       UI.toast('Send failed: ' + (e.message || ''), { kind: 'error' });
-    } finally {
-      ta.disabled = false;
-      ta.focus();
-    }
+    } finally { ta.disabled = false; ta.focus(); }
   }
 
   async function sendFirstOutreach() {
     if (!currentLead) return;
     try {
-      const r = await API.post('/send_first_outreach.php', { lead_id: currentLead.id });
-      UI.toast('Queued first outreach (engine will send within delay window)');
+      await API.post('/send_first_outreach.php', { lead_id: currentLead.id });
+      UI.toast('Queued first outreach');
       openLead(currentLead.id);
-    } catch (e) {
-      UI.toast('Failed: ' + (e.message || ''), { kind: 'error' });
-    }
+    } catch (e) { UI.toast('Failed: ' + (e.message || ''), { kind: 'error' }); }
   }
 
   async function togglePin() {
     if (!currentLead) return;
     try {
-      const r = await API.post('/update_lead.php', { lead_id: currentLead.id, is_pinned: !currentLead.is_pinned });
+      await API.post('/update_lead.php', { lead_id: currentLead.id, is_pinned: !currentLead.is_pinned });
       currentLead.is_pinned = !currentLead.is_pinned;
       UI.toast(currentLead.is_pinned ? 'Pinned' : 'Unpinned');
       LEADS.load(false);
@@ -182,13 +167,8 @@
     if (form) form.addEventListener('submit', (e) => { e.preventDefault(); sendManual(); });
     const ta = $('composer-input');
     if (ta) {
-      ta.addEventListener('input', () => {
-        ta.style.height = '42px';
-        ta.style.height = Math.min(160, ta.scrollHeight) + 'px';
-      });
-      ta.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendManual(); }
-      });
+      ta.addEventListener('input', () => { ta.style.height = '42px'; ta.style.height = Math.min(160, ta.scrollHeight) + 'px'; });
+      ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendManual(); } });
     }
     document.addEventListener('click', (e) => {
       if (e.target.closest('#btn-first-outreach')) sendFirstOutreach();
@@ -196,14 +176,14 @@
       if (e.target.closest('#btn-details')) DETAILS.open(currentLead?.id);
     });
 
-    // Ignore ALL inbound socket events for message:inbound
-    // Replies are handled by webhook → DB → next page refresh/lead open
-    // This prevents fake "Unknown" messages from appearing in realtime
+    // When inbound message arrives via socket, auto-reload current chat
     SOCK.on('message:inbound', (p) => {
-      // Only refresh lead list to show unread badge — don't inject message into chat
-      // (the message is already saved in DB by webhook, will show on next openLead)
       LEADS.load(false);
       STATS.refresh();
+      // If current chat is open, reload it to show new message
+      if (currentLead) {
+        openLead(currentLead.id);
+      }
     });
 
     SOCK.on('message:outbound', (p) => {
@@ -211,19 +191,14 @@
       const toDigits = (p.to || '').replace(/\D/g, '');
       if (currentLead.phone_e164 === toDigits) {
         appendMessage({
-          id: 'tmp_' + Date.now(),
-          lead_id: currentLead.id,
-          direction: 'outbound',
-          message_text: p.body || p.preview || '',
-          status: p.status || 'sent',
+          id: 'tmp_' + Date.now(), lead_id: currentLead.id, direction: 'outbound',
+          message_text: p.body || p.preview || '', status: p.status || 'sent',
           wa_message_id: p.wa_message_id,
           timestamp: new Date(p.timestamp || Date.now()).toISOString().slice(0, 19).replace('T', ' '),
         });
       }
     });
-    SOCK.on('message:status', (p) => {
-      if (p && p.wa_message_id && p.status) updateStatus(p.wa_message_id, p.status);
-    });
+    SOCK.on('message:status', (p) => { if (p && p.wa_message_id && p.status) updateStatus(p.wa_message_id, p.status); });
   }
 
   window.CHAT = { init, openLead, appendMessage };
