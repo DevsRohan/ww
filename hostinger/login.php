@@ -49,7 +49,7 @@ $pageTitle = 'Sign in';
         <button type="submit" class="btn-primary w-full justify-center">Sign in</button>
       </form>
 
-      <p class="text-[11px] text-ink-500 mt-6 text-center">Default: <code class="bg-ink-100 px-1.5 py-0.5 rounded">admin@example.com / admin@12345</code> — change immediately.</p>
+      <p class="text-[11px] text-ink-500 mt-6 text-center">First-time setup? Use the credentials provided during installation.</p>
     </div>
   </div>
 </div>

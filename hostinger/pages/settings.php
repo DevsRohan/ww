@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../config/bootstrap.php';
-Auth::requireApi(); // returns JSON 401 if not logged-in (used as fragment)
+Auth::requireLogin(); // redirects to login if not authenticated (used as fragment)
 ?>
 <div class="p-8 max-w-4xl mx-auto">
   <div class="mb-6">

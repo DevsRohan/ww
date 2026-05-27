@@ -32,7 +32,7 @@ class Auth
 
     public static function check(): bool { return self::user() !== null; }
 
-    public static function require(): void
+    public static function requireLogin(): void
     {
         if (!self::check()) {
             header('Location: ' . ($GLOBALS['APP']['public_path'] ?? '/') . 'login.php');

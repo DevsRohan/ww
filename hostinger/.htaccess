@@ -39,11 +39,7 @@ ServerSignature Off
   Require all denied
 </FilesMatch>
 
-# Disable PHP execution in upload dir (defense-in-depth)
-<Directory "uploads">
-  php_flag engine off
-  AddType text/plain .php .phtml .php3 .php4 .php5 .php7 .pht .phps
-</Directory>
+# PHP execution in uploads is blocked via uploads/.htaccess
 
 # PHP hardening
 <IfModule mod_php.c>

@@ -63,10 +63,12 @@ if (isset($dyn['feature_notification_sound'])) $APP['features']['notification_so
 if (isset($dyn['feature_logging']))     $APP['features']['logging']           = (bool)(int)$dyn['feature_logging'];
 
 // Auto-detect base_url if empty
-if (empty($APP['base_url'])) {
+if (empty($APP['base_url']) && PHP_SAPI !== 'cli') {
     $proto = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
     $host  = $_SERVER['HTTP_HOST'] ?? 'localhost';
     $APP['base_url'] = $proto . '://' . $host;
+} elseif (empty($APP['base_url'])) {
+    $APP['base_url'] = 'http://localhost';
 }
 
 // Make $APP globally available

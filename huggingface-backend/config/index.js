@@ -18,7 +18,7 @@ const config = {
     .filter(Boolean),
 
   sessionPath:
-    process.env.SESSION_PATH || path.join(__dirname, '..', 'data', 'wa_session'),
+    process.env.SESSION_PATH || path.resolve(__dirname, '..', 'data', 'wa_session'),
 
   rateLimit: {
     windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10),

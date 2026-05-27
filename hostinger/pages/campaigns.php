@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../config/bootstrap.php';
-Auth::requireApi();
+Auth::requireLogin();
 $campaigns = DB::fetchAll('SELECT * FROM campaigns ORDER BY created_at DESC LIMIT 50');
 ?>
 <div class="p-8 max-w-7xl mx-auto">

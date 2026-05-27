@@ -22,7 +22,7 @@
       return `
         <label class="inline-flex items-center cursor-pointer gap-2">
           <input type="checkbox" data-key="${escape(key)}" data-type="bool" ${(val == 1 || val === '1' || val === true) ? 'checked' : ''} class="sr-only peer"/>
-          <span class="w-9 h-5 rounded-full bg-ink-200 relative peer-checked:bg-brand-500 transition">
+          <span class="relative w-9 h-5 rounded-full bg-ink-200 peer-checked:bg-brand-500 transition">
             <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-soft transition peer-checked:translate-x-4"></span>
           </span>
           <span class="text-xs text-ink-500">${(val == 1 || val === '1') ? 'On' : 'Off'}</span>
