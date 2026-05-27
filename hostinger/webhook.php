@@ -113,9 +113,10 @@ function handle_inbound_message(array $p): void
     $phoneE164 = normalize_phone($from);
     if (!$phoneE164) return;
 
-    // Reject impossible phone numbers (> 12 digits for India, > 13 for international)
-    // This filters out corrupted WhatsApp message IDs that look like numbers
-    if (strlen($phoneE164) > 12) return;
+    // Reject corrupted phone numbers (> 13 digits)
+    // Valid international numbers: India 12, UK 12, US 11, Australia 11, Mexico 13
+    // Corrupted WA message IDs are 14-15+ digits — reject those
+    if (strlen($phoneE164) > 13) return;
 
     // Ignore messages from own WhatsApp number (outbound echo from smba platform)
     $engineCache = SettingsRepository::get('engine_status_cache');
