@@ -95,16 +95,9 @@ function handle_inbound(array $p): void
     if (!$phoneE164) return;
     if (strlen($phoneE164) > 13) return;
 
-    // Skip own number
-    $engineCache = SettingsRepository::get('engine_status_cache');
-    if (is_string($engineCache)) $engineCache = json_decode($engineCache, true);
-    if (is_array($engineCache)) {
-        $ownWid = $engineCache['info']['wid']['user'] ?? ($engineCache['info']['me']['user'] ?? null);
-        if ($ownWid) {
-            if ($phoneE164 === (string)$ownWid) return;
-            if (substr($phoneE164, -10) === substr((string)$ownWid, -10)) return;
-        }
-    }
+    // NOTE: Do NOT filter own number here — WhatsApp Business (smba) sends
+    // client replies with YOUR number in 'from' field. All messages are saved,
+    // duplicates prevented by wa_message_id idempotency check in recordInbound.
 
     $lead = LeadRepository::findByPhone($phoneE164);
     if (!$lead) {
