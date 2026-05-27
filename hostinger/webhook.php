@@ -2,6 +2,9 @@
 /**
  * Webhook receiver — accepts events from the Hugging Face Node.js engine.
  * Verifies HMAC-SHA256 signature, stores raw event for audit, processes idempotently.
+ *
+ * IMPORTANT: Responds with 200 OK immediately, then processes in background.
+ * This prevents HF free tier from timing out (15s limit).
  */
 
 require_once __DIR__ . '/config/bootstrap.php';
@@ -26,21 +29,29 @@ if (!Auth::verifyWebhookSignature($raw, $sig)) {
     exit;
 }
 
-$body = json_decode($raw, true);
-if (!is_array($body)) {
-    http_response_code(400);
-    echo json_encode(['ok' => false, 'error' => 'invalid_json']);
-    exit;
+// === RESPOND IMMEDIATELY — don't make HF wait ===
+http_response_code(200);
+echo json_encode(['ok' => true]);
+
+// Flush response to client so HF gets 200 instantly
+if (function_exists('litespeed_finish_request')) {
+    litespeed_finish_request();
+} elseif (function_exists('fastcgi_finish_request')) {
+    fastcgi_finish_request();
+} else {
+    // Fallback: flush output buffers
+    if (ob_get_level() > 0) ob_end_flush();
+    flush();
+    if (function_exists('ignore_user_abort')) ignore_user_abort(true);
 }
+
+// === Now process in background (HF already got 200 OK) ===
+
+$body = json_decode($raw, true);
+if (!is_array($body)) exit;
 
 $type    = $body['type']    ?? $eventType ?? 'unknown';
 $payload = $body['payload'] ?? [];
-$bodyTs  = (int)($body['ts'] ?? 0);
-$tolerance = (int)($GLOBALS['APP']['webhook']['tolerance_seconds'] ?? 300);
-if ($bodyTs > 0 && abs((time() * 1000) - $bodyTs) > $tolerance * 1000) {
-    AppLogger::warn('webhook_replay_window', ['ts' => $bodyTs, 'event' => $type], 'webhook');
-    // Do not reject — just warn (clock skew tolerance)
-}
 
 // Persist (idempotent on event_id when present)
 try {
@@ -70,7 +81,6 @@ try {
         case 'qr_updated':
         case 'connection_state':
         case 'engine_health':
-            // Only persisted; dashboard reads via socket directly. Cache snapshot.
             SettingsRepository::set('engine_status_cache', json_encode([
                 'state' => $payload['state'] ?? null,
                 'info'  => $payload['info']  ?? null,
@@ -90,7 +100,6 @@ try {
             [$eventId ?: $body['id']]
         );
     }
-    echo json_encode(['ok' => true]);
 } catch (\Throwable $e) {
     AppLogger::error('webhook_handler_failed', ['err' => $e->getMessage(), 'type' => $type], 'webhook');
     if (!empty($eventId) || !empty($body['id'])) {
@@ -99,8 +108,6 @@ try {
             [substr($e->getMessage(), 0, 500), $eventId ?: $body['id']]
         );
     }
-    http_response_code(500);
-    echo json_encode(['ok' => false, 'error' => 'handler_failed']);
 }
 
 // ---------- Handlers --------------------------------------------------
@@ -114,8 +121,6 @@ function handle_inbound_message(array $p): void
     if (!$phoneE164) return;
 
     // Reject corrupted phone numbers (> 13 digits)
-    // Valid international numbers: India 12, UK 12, US 11, Australia 11, Mexico 13
-    // Corrupted WA message IDs are 14-15+ digits — reject those
     if (strlen($phoneE164) > 13) return;
 
     // Ignore messages from own WhatsApp number (outbound echo from smba platform)
@@ -136,7 +141,6 @@ function handle_inbound_message(array $p): void
         $lead = DB::fetch('SELECT * FROM leads WHERE phone_e164 LIKE ? LIMIT 1', ['%' . $last10]);
     }
     if (!$lead) {
-        // Don't create unknown leads — just ignore messages from numbers not in our DB
         AppLogger::info('inbound_ignored_unknown', ['from' => $phoneE164], 'webhook');
         return;
     }
@@ -164,13 +168,11 @@ function handle_outbound_status(array $p): void
     $jobId = $p['meta']['jobId'] ?? ($p['jobId'] ?? null);
     if (!$status) return;
 
-    // Try to locate the message row
     $msg = null;
     if ($waId) {
         $msg = MessageRepository::findByWaId($waId);
     }
     if (!$msg && $jobId) {
-        // Find the queued row by jobId in meta. JSON_UNQUOTE strips the JSON quotes.
         $msg = DB::fetch(
             "SELECT * FROM messages
              WHERE wa_message_id IS NULL
@@ -179,7 +181,6 @@ function handle_outbound_status(array $p): void
             [$jobId]
         );
         if ($msg && $waId) {
-            // Link wa_message_id and update status atomically
             DB::execute(
                 'UPDATE messages SET wa_message_id = ?, status = ?, error_message = ?, updated_at = NOW() WHERE id = ?',
                 [$waId, $status, $p['error'] ?? null, $msg['id']]
@@ -196,13 +197,7 @@ function handle_outbound_status(array $p): void
 
     if ($msg) {
         $leadId = (int)$msg['lead_id'];
-        $map = [
-            'sent'      => 'sent',
-            'delivered' => 'delivered',
-            'read'      => 'read',
-            'failed'    => 'failed',
-            'queued'    => 'queued',
-        ];
+        $map = ['sent'=>'sent','delivered'=>'delivered','read'=>'read','failed'=>'failed','queued'=>'queued'];
         if (isset($map[$status])) {
             $rank = ['queued'=>0,'sent'=>1,'delivered'=>2,'read'=>3,'replied'=>4,'failed'=>1,'new'=>0,'sending'=>0,'skipped'=>1,'blocked'=>1];
             $current = LeadRepository::findById($leadId);
@@ -225,7 +220,7 @@ function handle_outbound_status(array $p): void
 function handle_number_validated(array $p): void
 {
     $phone = $p['phone'] ?? '';
-    $status = $p['status'] ?? null; // valid | not_on_whatsapp
+    $status = $p['status'] ?? null;
     if (!$phone || !$status) return;
     $e164 = normalize_phone($phone);
     if (!$e164) return;
