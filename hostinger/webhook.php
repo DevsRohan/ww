@@ -1,10 +1,8 @@
 <?php
 /**
- * Webhook receiver — accepts events from the Hugging Face Node.js engine.
- * Verifies HMAC-SHA256 signature, stores raw event for audit, processes idempotently.
- *
- * IMPORTANT: Responds with 200 OK immediately, then processes in background.
- * This prevents HF free tier from timing out (15s limit).
+ * Webhook receiver — SIMPLE VERSION.
+ * No signature check, no background processing.
+ * Just receive, parse, process, done.
  */
 
 require_once __DIR__ . '/config/bootstrap.php';
@@ -18,134 +16,73 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 $raw = file_get_contents('php://input');
-$sig = $_SERVER['HTTP_X_WEBHOOK_SIGNATURE'] ?? '';
-$eventType = $_SERVER['HTTP_X_WEBHOOK_EVENT'] ?? '';
-$eventId   = $_SERVER['HTTP_X_WEBHOOK_ID'] ?? '';
-
-// Verify signature — try multiple header formats (LiteSpeed may alter header names)
-$sig = $_SERVER['HTTP_X_WEBHOOK_SIGNATURE']
-    ?? $_SERVER['HTTP_X_WEBHOOK_SIGNATURE']
-    ?? $_SERVER['HTTP_WEBHOOK_SIGNATURE']
-    ?? '';
-
-// If signature is empty, try reading from all headers manually
-if ($sig === '' && function_exists('getallheaders')) {
-    $allHeaders = getallheaders();
-    foreach ($allHeaders as $k => $v) {
-        if (strtolower($k) === 'x-webhook-signature') {
-            $sig = $v;
-            break;
-        }
-    }
+$body = json_decode($raw, true);
+if (!is_array($body)) {
+    http_response_code(400);
+    echo json_encode(['ok' => false, 'error' => 'invalid_json']);
+    exit;
 }
 
-// Signature verification — log but don't block (HF env var issue)
-$sigValid = Auth::verifyWebhookSignature($raw, $sig);
-if (!$sigValid) {
-    AppLogger::debug('webhook_sig_mismatch', [
-        'ip' => client_ip(),
-        'event' => $eventType,
-        'sig_length' => strlen($sig),
-        'has_sig' => $sig !== '',
-    ], 'webhook');
-    // Don't block — allow processing (own-number filter in handler prevents abuse)
-}
-
-// === RESPOND IMMEDIATELY — don't make HF wait ===
+// Respond 200 immediately
 http_response_code(200);
 echo json_encode(['ok' => true]);
 
-// Flush response to client so HF gets 200 instantly
-if (function_exists('litespeed_finish_request')) {
-    litespeed_finish_request();
-} elseif (function_exists('fastcgi_finish_request')) {
-    fastcgi_finish_request();
-} else {
-    // Fallback: flush output buffers
-    if (ob_get_level() > 0) ob_end_flush();
-    flush();
-    if (function_exists('ignore_user_abort')) ignore_user_abort(true);
+$type    = $body['type'] ?? 'unknown';
+$payload = $body['payload'] ?? $body;
+
+// If payload is empty but body has 'from' directly, treat body as payload
+if (empty($payload) || !is_array($payload)) {
+    $payload = $body;
+}
+if (isset($body['from']) && !isset($payload['from'])) {
+    $payload = $body;
 }
 
-// === Now process in background (HF already got 200 OK) ===
-
-$body = json_decode($raw, true);
-if (!is_array($body)) exit;
-
-$type    = $body['type']    ?? $eventType ?? 'unknown';
-$payload = $body['payload'] ?? [];
-
-// Persist (idempotent on event_id when present)
-try {
-    DB::execute(
-        'INSERT INTO webhook_events (event_id, event_type, payload, signature, processed)
-         VALUES (?, ?, ?, ?, 0)
-         ON DUPLICATE KEY UPDATE attempts = attempts + 1',
-        [
-            !empty($eventId) ? $eventId : ($body['id'] ?? null),
-            $type,
-            json_encode($payload, JSON_UNESCAPED_UNICODE),
-            $sig
-        ]
-    );
-} catch (\Throwable $e) {
-    AppLogger::error('webhook_persist_failed', ['err' => $e->getMessage()], 'webhook');
-}
+AppLogger::info('webhook_received', ['type' => $type, 'keys' => array_keys($body)], 'webhook');
 
 try {
     switch ($type) {
         case 'inbound_message':
-            handle_inbound_message($payload);
+            handle_inbound($payload);
             break;
         case 'outbound_status':
-            handle_outbound_status($payload);
+            handle_outbound($payload);
             break;
-        case 'qr_updated':
         case 'connection_state':
+        case 'qr_updated':
         case 'engine_health':
             SettingsRepository::set('engine_status_cache', json_encode([
                 'state' => $payload['state'] ?? null,
-                'info'  => $payload['info']  ?? null,
+                'info'  => $payload['info'] ?? null,
                 'last_seen' => date('c'),
             ], JSON_UNESCAPED_UNICODE), 'json', false);
             break;
         case 'number_validated':
-            handle_number_validated($payload);
+            handle_validated($payload);
             break;
         default:
-            AppLogger::info('webhook_unknown_type', ['type' => $type], 'webhook');
-    }
-
-    if (!empty($eventId) || !empty($body['id'])) {
-        DB::execute(
-            'UPDATE webhook_events SET processed = 1, processed_at = NOW() WHERE event_id = ?',
-            [$eventId ?: $body['id']]
-        );
+            // Maybe type is missing but payload has 'from' — treat as inbound
+            if (isset($payload['from']) && isset($payload['body'])) {
+                handle_inbound($payload);
+            }
+            break;
     }
 } catch (\Throwable $e) {
-    AppLogger::error('webhook_handler_failed', ['err' => $e->getMessage(), 'type' => $type], 'webhook');
-    if (!empty($eventId) || !empty($body['id'])) {
-        DB::execute(
-            'UPDATE webhook_events SET last_error = ? WHERE event_id = ?',
-            [substr($e->getMessage(), 0, 500), $eventId ?: $body['id']]
-        );
-    }
+    AppLogger::error('webhook_error', ['err' => $e->getMessage(), 'type' => $type], 'webhook');
 }
 
 // ---------- Handlers --------------------------------------------------
 
-function handle_inbound_message(array $p): void
+function handle_inbound(array $p): void
 {
     $from = (string)($p['from'] ?? '');
     if (!$from) return;
 
     $phoneE164 = normalize_phone($from);
     if (!$phoneE164) return;
-
-    // Reject corrupted phone numbers (> 13 digits)
     if (strlen($phoneE164) > 13) return;
 
-    // Ignore messages from own WhatsApp number (outbound echo from smba platform)
+    // Skip own number
     $engineCache = SettingsRepository::get('engine_status_cache');
     if (is_string($engineCache)) $engineCache = json_decode($engineCache, true);
     if (is_array($engineCache)) {
@@ -156,34 +93,26 @@ function handle_inbound_message(array $p): void
         }
     }
 
-    // Find the lead by phone — exact match then last 10 digits
     $lead = LeadRepository::findByPhone($phoneE164);
     if (!$lead) {
         $last10 = substr($phoneE164, -10);
         $lead = DB::fetch('SELECT * FROM leads WHERE phone_e164 LIKE ? LIMIT 1', ['%' . $last10]);
     }
     if (!$lead) {
-        AppLogger::info('inbound_ignored_unknown', ['from' => $phoneE164], 'webhook');
+        AppLogger::info('inbound_no_lead', ['from' => $phoneE164], 'webhook');
         return;
     }
-    $leadId = (int)$lead['id'];
 
     $waId = $p['wa_message_id'] ?? null;
     $text = (string)($p['body'] ?? '');
-    $ts   = isset($p['timestamp']) ? (int)round(((int)$p['timestamp']) / 1000) : null;
+    $ts = isset($p['timestamp']) ? (int)round(((int)$p['timestamp']) / 1000) : null;
 
-    MessageRepository::recordInbound($leadId, $text, $waId, $ts, [
-        'type' => $p['type'] ?? 'chat',
-        'has_media' => $p['has_media'] ?? false,
-    ]);
-    LeadRepository::markInbound($leadId);
-    DB::execute(
-        'INSERT INTO activity_log (lead_id, actor, action, description) VALUES (?, "lead", "reply_received", ?)',
-        [$leadId, mb_substr($text, 0, 200)]
-    );
+    MessageRepository::recordInbound((int)$lead['id'], $text, $waId, $ts);
+    LeadRepository::markInbound((int)$lead['id']);
+    AppLogger::info('inbound_saved', ['lead_id' => $lead['id'], 'from' => $phoneE164, 'text' => mb_substr($text, 0, 50)], 'webhook');
 }
 
-function handle_outbound_status(array $p): void
+function handle_outbound(array $p): void
 {
     $waId = $p['wa_message_id'] ?? null;
     $status = $p['status'] ?? null;
@@ -191,55 +120,25 @@ function handle_outbound_status(array $p): void
     if (!$status) return;
 
     $msg = null;
-    if ($waId) {
-        $msg = MessageRepository::findByWaId($waId);
-    }
+    if ($waId) $msg = MessageRepository::findByWaId($waId);
     if (!$msg && $jobId) {
-        $msg = DB::fetch(
-            "SELECT * FROM messages
-             WHERE wa_message_id IS NULL
-               AND JSON_UNQUOTE(JSON_EXTRACT(meta, '$.jobId')) = ?
-             ORDER BY id DESC LIMIT 1",
-            [$jobId]
-        );
-        if ($msg && $waId) {
-            DB::execute(
-                'UPDATE messages SET wa_message_id = ?, status = ?, error_message = ?, updated_at = NOW() WHERE id = ?',
-                [$waId, $status, $p['error'] ?? null, $msg['id']]
-            );
-        } else if ($msg) {
-            DB::execute(
-                'UPDATE messages SET status = ?, error_message = ?, updated_at = NOW() WHERE id = ?',
-                [$status, $p['error'] ?? null, $msg['id']]
-            );
-        }
-    } else if ($msg) {
-        MessageRepository::updateStatusByWaId($waId, $status, $p['error'] ?? null);
+        $msg = DB::fetch("SELECT * FROM messages WHERE JSON_UNQUOTE(JSON_EXTRACT(meta, '$.jobId')) = ? ORDER BY id DESC LIMIT 1", [$jobId]);
     }
-
     if ($msg) {
+        if ($waId) {
+            DB::execute('UPDATE messages SET wa_message_id = ?, status = ?, updated_at = NOW() WHERE id = ?', [$waId, $status, $msg['id']]);
+        } else {
+            DB::execute('UPDATE messages SET status = ?, updated_at = NOW() WHERE id = ?', [$status, $msg['id']]);
+        }
         $leadId = (int)$msg['lead_id'];
-        $map = ['sent'=>'sent','delivered'=>'delivered','read'=>'read','failed'=>'failed','queued'=>'queued'];
-        if (isset($map[$status])) {
-            $rank = ['queued'=>0,'sent'=>1,'delivered'=>2,'read'=>3,'replied'=>4,'failed'=>1,'new'=>0,'sending'=>0,'skipped'=>1,'blocked'=>1];
-            $current = LeadRepository::findById($leadId);
-            if ($current && $current['outreach_status'] !== 'replied') {
-                $cur = $rank[$current['outreach_status']] ?? 0;
-                $nw  = $rank[$map[$status]] ?? 0;
-                if ($status === 'failed') {
-                    LeadRepository::setOutreachStatus($leadId, 'failed');
-                } else if ($nw >= $cur) {
-                    LeadRepository::setOutreachStatus($leadId, $map[$status]);
-                }
-                if ($status === 'sent') {
-                    LeadRepository::markOutbound($leadId);
-                }
-            }
+        if ($status === 'sent') LeadRepository::markOutbound($leadId);
+        if (in_array($status, ['sent','delivered','read'])) {
+            LeadRepository::setOutreachStatus($leadId, $status);
         }
     }
 }
 
-function handle_number_validated(array $p): void
+function handle_validated(array $p): void
 {
     $phone = $p['phone'] ?? '';
     $status = $p['status'] ?? null;
@@ -249,7 +148,5 @@ function handle_number_validated(array $p): void
     $lead = LeadRepository::findByPhone($e164);
     if (!$lead) return;
     LeadRepository::setWhatsappStatus((int)$lead['id'], $status);
-    if ($status === 'not_on_whatsapp') {
-        LeadRepository::setOutreachStatus((int)$lead['id'], 'skipped');
-    }
+    if ($status === 'not_on_whatsapp') LeadRepository::setOutreachStatus((int)$lead['id'], 'skipped');
 }
