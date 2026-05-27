@@ -85,8 +85,6 @@
   }
 
   async function openLead(id) {
-    // Prevent race condition — if already loading, abort silently
-    if (loadingLead) return;
     loadingLead = true;
     try {
       const r = await API.get('/get_messages.php', { lead_id: id });
@@ -102,29 +100,12 @@
       $('btn-pin').classList.remove('hidden');
 
       renderMessages();
-      // Mark read
       try { await API.post('/mark_read.php', { lead_id: id }); } catch (_) {}
       STATS.refresh();
     } catch (e) {
-      // Retry once automatically instead of showing error
-      try {
-        const r = await API.get('/get_messages.php', { lead_id: id });
-        currentLead = r.lead;
-        messages = r.messages || [];
-        $('chat-empty').classList.add('hidden');
-        $('chat-title').textContent = currentLead.business_name;
-        $('chat-subtitle').textContent = `${currentLead.phone_display} • ${currentLead.outreach_status}`;
-        $('chat-avatar').textContent = (currentLead.business_name || '?').charAt(0).toUpperCase();
-        $('chat-composer').classList.remove('hidden');
-        $('btn-details').classList.remove('hidden');
-        $('btn-pin').classList.remove('hidden');
-        renderMessages();
-      } catch (e2) {
-        UI.toast('Failed to load chat — try again', { kind: 'error' });
-      }
-    } finally {
-      loadingLead = false;
+      UI.toast('Failed to load chat — click again', { kind: 'error' });
     }
+    loadingLead = false;
   }
 
   function appendMessage(m) {
@@ -176,7 +157,6 @@
     try {
       const r = await API.post('/send_first_outreach.php', { lead_id: currentLead.id });
       UI.toast('Queued first outreach (engine will send within delay window)');
-      // Reload chat to show queued message
       openLead(currentLead.id);
     } catch (e) {
       UI.toast('Failed: ' + (e.message || ''), { kind: 'error' });
@@ -191,6 +171,11 @@
       UI.toast(currentLead.is_pinned ? 'Pinned' : 'Unpinned');
       LEADS.load(false);
     } catch (e) { UI.toast('Pin failed', { kind: 'error' }); }
+  }
+
+  // Get own WhatsApp number to filter out self-messages
+  function getOwnNumber() {
+    return (window.__APP__ && window.__APP__._ownWaNumber) || '';
   }
 
   function init() {
@@ -212,10 +197,20 @@
       if (e.target.closest('#btn-details')) DETAILS.open(currentLead?.id);
     });
 
+    // Cache own number from engine status for filtering
+    SOCK.on('system:heartbeat', (p) => {
+      if (p && p.whatsapp && p.whatsapp.info && p.whatsapp.info.wid) {
+        window.__APP__._ownWaNumber = p.whatsapp.info.wid.user || '';
+      }
+    });
+
     SOCK.on('message:inbound', (p) => {
       if (!p) return;
-      // Match by phone number (strip non-digits for comparison)
       const fromDigits = (p.from || '').replace(/\D/g, '');
+      // Ignore messages from own number (these are outbound echoes)
+      const ownNum = getOwnNumber();
+      if (ownNum && fromDigits === ownNum) return;
+
       if (currentLead && currentLead.phone_e164 === fromDigits) {
         appendMessage({
           id: 'tmp_' + Date.now(),
@@ -226,7 +221,6 @@
           wa_message_id: p.wa_message_id,
           timestamp: new Date(p.timestamp || Date.now()).toISOString().slice(0, 19).replace('T', ' '),
         });
-        // Mark read since user is viewing
         API.post('/mark_read.php', { lead_id: currentLead.id }).catch(() => {});
       }
     });

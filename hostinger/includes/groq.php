@@ -126,7 +126,7 @@ USR;
     {
         switch ($lang) {
             case 'hinglish':
-                return "Write in friendly Hinglish (Roman script Hindi mixed with simple English). Warm and respectful tone.";
+                return "10. LANGUAGE: MUST write in Hinglish (Roman script Hindi mixed with English). Example: 'Aapki shop ka rating kaafi accha hai. Hum aapke liye ek landing page bana sakte hain.' — DO NOT write in pure English.";
             case 'gujarati_english':
                 return "Write in clean business English with a couple of warm Gujarati-flavored phrases (in English script) only if natural. Default to English.";
             case 'marathi_english':

@@ -112,6 +112,12 @@ function handle_inbound_message(array $p): void
     $phoneE164 = normalize_phone($from);
     if (!$phoneE164) return;
 
+    // Ignore messages from own WhatsApp number (outbound echo)
+    $engineCache = SettingsRepository::get('engine_status_cache');
+    if (is_string($engineCache)) $engineCache = json_decode($engineCache, true);
+    $ownWid = $engineCache['info']['wid']['user'] ?? ($engineCache['info']['me']['user'] ?? null);
+    if ($ownWid && $phoneE164 === (string)$ownWid) return;
+
     // Try exact match first, then try LIKE match with last 10 digits
     $lead = LeadRepository::findByPhone($phoneE164);
     if (!$lead) {
