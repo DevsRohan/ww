@@ -176,15 +176,23 @@
       if (e.target.closest('#btn-details')) DETAILS.open(currentLead?.id);
     });
 
-    // When inbound message arrives via socket, auto-reload current chat
+    // When inbound message arrives via socket, reload chat after short delay
+    // (delay ensures webhook has saved message to DB before we fetch)
     SOCK.on('message:inbound', (p) => {
       LEADS.load(false);
       STATS.refresh();
-      // If current chat is open, reload it to show new message
+      if (currentLead) {
+        setTimeout(() => openLead(currentLead.id), 1500);
+      }
+    });
+
+    // POLLING: Check for new messages every 8 seconds when chat is open
+    // This is the RELIABLE way to get replies (doesn't depend on socket/webhook timing)
+    setInterval(() => {
       if (currentLead) {
         openLead(currentLead.id);
       }
-    });
+    }, 8000);
 
     SOCK.on('message:outbound', (p) => {
       if (!p || !currentLead) return;
