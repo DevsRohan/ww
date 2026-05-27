@@ -17,9 +17,22 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 $raw = file_get_contents('php://input');
 $body = json_decode($raw, true);
+// Handle double-encoded JSON from Pipedream relay
+if (!is_array($body) && is_string($body)) {
+    $body = json_decode($body, true);
+}
+if (is_string($raw) && !is_array($body)) {
+    // Try stripping outer quotes if wrapped
+    $stripped = trim($raw, "\" \t\n\r");
+    $body = json_decode($stripped, true);
+}
 if (!is_array($body)) {
-    http_response_code(400);
-    echo json_encode(['ok' => false, 'error' => 'invalid_json']);
+    // Last resort — try to decode raw as-is without any processing
+    $body = json_decode(stripslashes($raw), true);
+}
+if (!is_array($body)) {
+    http_response_code(200);
+    echo json_encode(['ok' => true, 'note' => 'body_not_parsed']);
     exit;
 }
 
