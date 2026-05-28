@@ -1,6 +1,7 @@
-/* campaign.js — start/pause campaign actions + status indicator */
+/* campaign.js — start/pause campaign actions + status indicator + status sync */
 (function () {
   let campaignRunning = false;
+  let syncInterval = null;
 
   function updateStatusBanner(running) {
     campaignRunning = running;
@@ -19,10 +20,43 @@
     if (running) {
       banner.className = 'mt-3 px-3 py-2 rounded-lg text-xs font-medium text-center bg-brand-100 text-brand-700 border border-brand-200';
       banner.innerHTML = '<span class="inline-block w-2 h-2 rounded-full bg-brand-500 animate-pulse mr-1.5"></span>Campaign Running';
+      startSync();
     } else {
       banner.className = 'mt-3 px-3 py-2 rounded-lg text-xs font-medium text-center bg-ink-100 text-ink-500 border border-ink-200';
       banner.innerHTML = '<span class="inline-block w-2 h-2 rounded-full bg-ink-400 mr-1.5"></span>Campaign Paused';
+      stopSync();
     }
+  }
+
+  // Poll refresh_sync every 30s to update queued→sent statuses
+  function startSync() {
+    if (syncInterval) return;
+    syncInterval = setInterval(async () => {
+      try {
+        const r = await API.post('/refresh_sync.php', {});
+        if (r.updated_to_sent > 0) {
+          // Refresh lead list to show updated statuses
+          if (window.LEADS) LEADS.load(false);
+          if (window.STATS) STATS.refresh();
+        }
+        // If queue is empty and no stuck messages, campaign might be done
+        if (r.queue_size === 0 && r.checked === 0) {
+          // Check if any leads still queued
+          // (handled by next stats refresh)
+        }
+      } catch (e) { /* silent */ }
+    }, 30000);
+    // Also run immediately
+    setTimeout(async () => {
+      try {
+        const r = await API.post('/refresh_sync.php', {});
+        if (r.updated_to_sent > 0 && window.LEADS) LEADS.load(false);
+      } catch (e) {}
+    }, 5000);
+  }
+
+  function stopSync() {
+    if (syncInterval) { clearInterval(syncInterval); syncInterval = null; }
   }
 
   async function checkStatus() {
@@ -42,18 +76,19 @@
       body: `
         <p class="text-sm text-ink-700">This will queue all <b>valid</b> leads for first outreach.</p>
         <ul class="text-xs text-ink-500 mt-3 space-y-1 list-disc pl-5">
-          <li>Random delay <b>120-300s</b> between sends</li>
+          <li>Messages sent one-by-one with <b>2-5 min</b> gap</li>
           <li>Daily cap protection (60/day)</li>
-          <li>Cron sends 5 leads every 2 minutes</li>
+          <li>Status auto-updates every 30 seconds</li>
           <li>You can pause anytime</li>
         </ul>`,
       confirmText: 'Start Campaign',
       onConfirm: async () => {
         try {
           const r = await API.post('/start_campaign.php', {});
-          UI.toast(`Campaign started! ${r.queued} leads queued. Messages will send via cron every 2 min.`);
+          UI.toast(`Campaign started! ${r.queued} leads queued, ${r.sent_now} sent to engine.`);
           updateStatusBanner(true);
           STATS.refresh();
+          if (window.LEADS) LEADS.load(false);
         } catch (e) { UI.toast('Failed to start: ' + (e.message || ''), { kind: 'error' }); }
       }
     });

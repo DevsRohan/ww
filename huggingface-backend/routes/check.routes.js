@@ -39,7 +39,8 @@ router.post('/check-number', apiKeyAuth, async (req, res, next) => {
  * GET /status
  */
 router.get('/status', apiKeyAuth, (req, res) => {
-  res.json({ ok: true, status: whatsapp.getStatus() });
+  const queue = require('../services/queue.service');
+  res.json({ ok: true, status: { ...whatsapp.getStatus(), queue: queue.snapshot() } });
 });
 
 /**
