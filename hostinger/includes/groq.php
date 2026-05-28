@@ -84,38 +84,48 @@ class Groq
         $businessTypeContext = $businessType !== '' ? "- Business Type: $businessType" : '';
 
         $system = <<<SYS
-You are an expert cold outreach copywriter for a digital agency named "$brand".
-You write the FIRST WhatsApp message to a local business owner.
-Hard rules:
-1. Output ONLY the final message text. No preface, no labels, no markdown, no quotes.
-2. 4-5 short paragraphs, total 80-130 words.
-3. EACH PARAGRAPH must be separated by a blank line (double newline). This is critical for WhatsApp readability.
-4. NO emojis except a single optional 👋 in the opener (keep it tasteful, can omit).
-5. NO pricing. NO urgency. NO ALL CAPS. NO sales clichés.
-6. Mention business name and city/locality naturally.
-7. Mention rating/reviews ONLY if it adds genuine credibility (skip if missing).
-8. End with a soft, low-friction CTA inviting a short reply (not a phone call).
-9. Sign off with: "— $signature" (on its own line, after a blank line).
-10. Sound like a real human messaging on WhatsApp, not a marketer.
-11. Message should feel SO relevant that the reader thinks you understand their specific industry.
+You are a WhatsApp cold outreach expert for "$brand".
+Write the FIRST message to a business owner. Think of it as a WhatsApp chat — NOT an email.
+
+STRICT RULES:
+1. Output ONLY the message text. No labels, no markdown, no quotes around it.
+2. MAXIMUM 40-60 words total. 3-4 short lines. This is WhatsApp, not email.
+3. Each line separated by a blank line (double newline).
+4. Tone: casual, friendly, like texting a potential business friend. NOT corporate/formal.
+5. ONE specific data point about them (rating, reviews, or something real). No generic flattery.
+6. ONE clear benefit/value proposition — what THEY get. Be specific (numbers help).
+7. CTA must be ultra-easy: "batao", "interested?", "haan bol do", "reply karo". One word reply enough.
+8. Sign off: "— $signature" (own line, after blank line).
+9. Max 1-2 emojis total (👋 in opener is fine).
+10. NO: "I came across", "I noticed", "I'd love to", "reputation precedes", "testament to". These scream mass message.
+11. Start with "Hi [business name] 👋" or similar casual opener.
 $languageInstr
+
+EXAMPLE (Hinglish):
+Hi [Name] 👋
+
+[Name] ki [X] reviews dekhi - solid kaam kar rahe ho [city] mein.
+
+Ek idea tha - [specific benefit with number]. [How it helps them].
+
+Interested ho toh batao, 2 min mein samjha dunga.
+
+— $signature
 SYS;
 
         $user = <<<USR
-LEAD CONTEXT
+LEAD:
 - Business: $business
 $businessTypeContext
 - Location: $location
-- Website status: $website
-- Trust signal: $trustSnippet
-- Pitch type: $pitchType
+- Website: $website | Trust: $trustSnippet
 $pitchInstr
 $industryInstr
 
-PICK FROM THESE RELEVANT SERVICES (use 1-2 maximum, mention naturally, never list all):
+SERVICES TO PICK FROM (use only 1, mention casually):
 $servicesLine
 
-Now write the message.
+Write the WhatsApp message. Max 40-60 words. Be specific, casual, short.
 USR;
 
         return [
@@ -139,18 +149,18 @@ USR;
     {
         switch ($lang) {
             case 'hinglish':
-                return "10. LANGUAGE: MUST write in Hinglish (Roman script Hindi mixed with English). Example: 'Aapki shop ka rating kaafi accha hai. Hum aapke liye ek landing page bana sakte hain.' — DO NOT write in pure English.";
+                return "LANGUAGE: Write in Hinglish (Roman Hindi + English mix). Casual WhatsApp tone. Example: 'Aapki 254 reviews dekhi - kaafi solid kaam. Ek idea tha - humara AI chatbot aapke clients ka response time 2 min kar deta hai. Interested ho toh batao.'";
             case 'gujarati_english':
-                return "Write in clean business English with a couple of warm Gujarati-flavored phrases (in English script) only if natural. Default to English.";
+                return "LANGUAGE: Casual English with Gujarati warmth. WhatsApp friendly tone.";
             case 'marathi_english':
-                return "Write in clean business English with a couple of warm Marathi-flavored phrases (in English script) only if natural. Default to English.";
+                return "LANGUAGE: Casual English with Marathi warmth. WhatsApp friendly tone.";
             case 'punjabi_hinglish':
-                return "Write in friendly Hinglish with a hint of Punjabi warmth (Roman script). Default to Hinglish.";
+                return "LANGUAGE: Friendly Hinglish with Punjabi warmth. Casual WhatsApp vibe.";
             case 'bengali_english':
-                return "Write in polite business English with optional warm Bengali touch (in English script). Default to English.";
+                return "LANGUAGE: Casual English with Bengali warmth. WhatsApp friendly tone.";
             case 'business_english':
             default:
-                return "Write in clean, professional yet friendly business English.";
+                return "LANGUAGE: Clean but CASUAL English. Think WhatsApp chat between professionals, NOT a formal email. Short sentences. Friendly.";
         }
     }
 
@@ -309,8 +319,8 @@ USR;
         $body = [
             'model'       => $cfg['model'] ?? 'llama-3.3-70b-versatile',
             'messages'    => $messages,
-            'temperature' => (float)($cfg['temperature'] ?? 0.7),
-            'max_tokens'  => (int)($cfg['max_tokens'] ?? 800),
+            'temperature' => (float)($cfg['temperature'] ?? 0.8),
+            'max_tokens'  => (int)($cfg['max_tokens'] ?? 300),
             'top_p'       => 0.9,
         ];
 
@@ -406,7 +416,7 @@ USR;
         $reviews   = $lead['review_count'] ?? null;
         $website   = $lead['website_status'] ?? 'unknown';
         $pitchType = $lead['pitch_type'] ?? 'unknown';
-        $signature = $owner['signature'] ?? 'Rohan from Rohan Digital';
+        $signature = $owner['signature'] ?? 'From DevsArun';
         $lang      = $lead['language_preference'] ?? 'hinglish';
 
         // Override language for fallback too
@@ -414,38 +424,38 @@ USR;
             $lang = self::resolveLanguageByBusinessType($bizType, $lang);
         }
 
+        // Build short trust line
         $trust = '';
-        if ($rating && (float)$rating >= 4.0) {
-            $trust = $lang === 'business_english'
-                ? "Your $rating rating" . ($reviews ? " across $reviews reviews" : '') . " is impressive."
-                : ($city ? "{$city} mein " : '') . "{$name} ka {$rating} rating" . ($reviews ? " aur {$reviews} reviews" : '') . " genuinely impressive hai.";
+        if ($rating && (float)$rating >= 4.0 && $reviews) {
+            $trust = ($lang === 'business_english' || $lang === 'business_english')
+                ? "{$name}'s {$reviews} reviews — solid work in {$city}."
+                : "{$name} ki {$reviews} reviews dekhi — kaafi solid kaam kar rahe ho" . ($city ? " {$city} mein." : ".");
+        } elseif ($city) {
+            $trust = ($lang === 'business_english')
+                ? "Saw {$name} in {$city} — interesting work."
+                : "{$name} ko {$city} mein dekha — accha kaam kar rahe ho.";
         }
 
+        // Build value line based on pitch type
         if ($pitchType === 'type_a') {
-            $body = $lang === 'business_english'
-                ? "I noticed your website is live, which is great. Most established local businesses still leave a lot of growth on the table because their site isn't tuned for conversions or doesn't have basic automations like WhatsApp follow-ups or a lead-capture flow."
-                : "Maine notice kiya aapki website live hai — that's already ahead of most local businesses. Bas ek baat: aksar website hone ke baad bhi conversions aur lead capture properly setup nahi hota, aur WhatsApp follow-up jaise simple automations miss ho jaate hain.";
-            $offer = $lang === 'business_english'
-                ? "We help businesses like yours with conversion-focused website tweaks and a simple WhatsApp + CRM automation that captures and nurtures every enquiry."
-                : "Hum businesses ke liye conversion-friendly website improvements aur simple WhatsApp + CRM automation setup karte hain — taaki har enquiry properly capture ho.";
+            $value = ($lang === 'business_english')
+                ? "Quick idea — our WhatsApp automation can capture leads from your website 24/7 and respond in under 2 min. Most businesses see 3x more enquiries."
+                : "Ek idea tha — humara WhatsApp automation aapki website se 24/7 leads capture karke 2 min mein respond karta hai. Most businesses ko 3x zyada enquiries milti hain.";
         } else {
-            $body = $lang === 'business_english'
-                ? "I noticed your business doesn't seem to have a dedicated website yet. In your category, a clean mobile-first site (or a single landing page with WhatsApp enquiry) usually doubles incoming leads within a few weeks."
-                : "Maine dekha aapki business ka dedicated website abhi nahi hai. Aapki category mein ek clean mobile-friendly website ya simple landing page (with WhatsApp enquiry) usually 2-3 weeks mein leads kaafi badha deti hai.";
-            $offer = $lang === 'business_english'
-                ? "We build fast, mobile-first business websites and landing pages designed specifically for local lead generation."
-                : "Hum specifically local lead generation ke liye fast, mobile-first websites aur landing pages design karte hain.";
+            $value = ($lang === 'business_english')
+                ? "Quick idea — a simple mobile-first landing page with WhatsApp enquiry can bring 2-3x more leads than just Google listing alone."
+                : "Ek idea tha — ek simple landing page with WhatsApp enquiry bana dein toh Google listing se 2-3x zyada leads aati hain.";
         }
 
-        $cta = $lang === 'business_english'
-            ? "If this sounds useful, just reply 'yes' and I'll share a quick 2-minute overview tailored to {$name}."
-            : "Agar useful lagta hai toh ek short 'haan' reply kar dijiye, main {$name} ke liye ek quick 2-minute overview share kar dunga.";
+        // Short CTA
+        $cta = ($lang === 'business_english')
+            ? "Interested? Just reply 'yes' — will explain in 2 min."
+            : "Interested ho toh batao, 2 min mein samjha dunga.";
 
         return implode("\n\n", array_filter([
-            ($lang === 'business_english' ? "Hi! 👋 Reaching out about {$name}." : "Namaste 👋 {$name} ke baare mein ek quick baat."),
+            "Hi {$name} 👋",
             $trust,
-            $body,
-            $offer,
+            $value,
             $cta,
             "— {$signature}",
         ]));
