@@ -7,7 +7,6 @@
     campaignRunning = running;
     let banner = document.getElementById('campaign-status-banner');
     if (!banner) {
-      // Create banner element after Quick Actions section
       const quickActions = document.querySelector('[data-action="pause-campaign"]');
       if (quickActions && quickActions.parentElement) {
         banner = document.createElement('div');
@@ -28,31 +27,28 @@
     }
   }
 
-  // Poll refresh_sync every 30s to update queued→sent statuses
+  // Sync function — polls Node queue size and marks sent messages
+  async function doSync() {
+    try {
+      const r = await API.post('/refresh_sync.php', {});
+      if (r.updated_to_sent > 0) {
+        if (window.LEADS) LEADS.load(false);
+        if (window.STATS) STATS.refresh();
+      }
+      // If queue empty and nothing left queued, campaign is done
+      if (r.queue_size === 0 && r.total_queued === 0 && campaignRunning) {
+        updateStatusBanner(false);
+        UI.toast('Campaign complete — all messages sent!', { kind: 'success' });
+      }
+    } catch (e) { /* silent */ }
+  }
+
   function startSync() {
     if (syncInterval) return;
-    syncInterval = setInterval(async () => {
-      try {
-        const r = await API.post('/refresh_sync.php', {});
-        if (r.updated_to_sent > 0) {
-          // Refresh lead list to show updated statuses
-          if (window.LEADS) LEADS.load(false);
-          if (window.STATS) STATS.refresh();
-        }
-        // If queue is empty and no stuck messages, campaign might be done
-        if (r.queue_size === 0 && r.checked === 0) {
-          // Check if any leads still queued
-          // (handled by next stats refresh)
-        }
-      } catch (e) { /* silent */ }
-    }, 30000);
-    // Also run immediately
-    setTimeout(async () => {
-      try {
-        const r = await API.post('/refresh_sync.php', {});
-        if (r.updated_to_sent > 0 && window.LEADS) LEADS.load(false);
-      } catch (e) {}
-    }, 5000);
+    // Poll every 15 seconds
+    syncInterval = setInterval(doSync, 15000);
+    // First sync after 10s (give Node time to send first message)
+    setTimeout(doSync, 10000);
   }
 
   function stopSync() {
@@ -78,7 +74,7 @@
         <ul class="text-xs text-ink-500 mt-3 space-y-1 list-disc pl-5">
           <li>Messages sent one-by-one with <b>2-5 min</b> gap</li>
           <li>Daily cap protection (60/day)</li>
-          <li>Status auto-updates every 30 seconds</li>
+          <li>Status updates every 15 seconds automatically</li>
           <li>You can pause anytime</li>
         </ul>`,
       confirmText: 'Start Campaign',
