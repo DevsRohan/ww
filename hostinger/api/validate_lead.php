@@ -17,12 +17,16 @@ if (empty($res['ok'])) {
     $reason = $res['error'] ?? 'unknown';
     $detail = $res['detail'] ?? ($res['raw'] ?? '');
     $httpCode = $res['http'] ?? 0;
+    $backendMsg = $res['message'] ?? '';
 
     $userMessage = match($reason) {
-        'curl_error'         => 'WhatsApp engine not reachable. Check if backend is running.',
+        'curl_error'              => 'WhatsApp engine not reachable. Check if backend is running.',
         'node_url_not_configured' => 'Backend URL not configured in settings.',
-        'invalid_response'   => 'Backend returned invalid response (HTTP ' . $httpCode . ').',
-        default              => 'Validation failed: ' . $reason,
+        'invalid_response'        => 'Backend returned invalid response (HTTP ' . $httpCode . ').',
+        'engine_not_ready'        => 'WhatsApp not connected! Scan QR code first, then retry.',
+        'server_error'            => $backendMsg ?: 'WhatsApp engine error. Wait 30s and retry.',
+        'invalid_phone'           => 'Invalid phone number format for this lead.',
+        default                   => $backendMsg ?: ('Validation failed: ' . $reason),
     };
 
     AppLogger::warn('validate_lead_failed', [

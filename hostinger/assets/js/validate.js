@@ -36,17 +36,16 @@
 
     if (status) status.textContent = message || 'Done!';
     if (stopBtn) stopBtn.classList.add('hidden');
-    if (bar) bar.style.width = '100%';
+    if (bar && !message.startsWith('Error') && !message.startsWith('Stopped')) bar.style.width = '100%';
 
     running = false;
 
-    // Auto-hide after 5s
+    // Auto-hide after 8s
     setTimeout(() => {
       showProgress(false);
-      // Reset
       const b = document.getElementById('validate-bar');
       if (b) b.style.width = '0%';
-    }, 5000);
+    }, 8000);
 
     // Refresh leads list
     if (window.LEADS) LEADS.load(false);
@@ -66,35 +65,41 @@
     failed = 0;
 
     showProgress(true);
+    const status = document.getElementById('validate-status');
+    if (status) status.textContent = 'Checking WhatsApp engine...';
 
-    // First call to get initial count
+    // ─── Step 1: Pre-flight engine check ───────────────────────────
     try {
-      const first = await API.post('/validate_next.php', {});
-      if (first.done) {
-        finish('All leads already validated!');
-        UI.toast('No pending leads to validate');
+      const check = await API.post('/validate_next.php', { action: 'check_engine' });
+      if (!check.engine_ready) {
+        finish('Engine not ready');
+        UI.toast('WhatsApp engine is not ready', { kind: 'error' });
+        running = false;
         return;
       }
-      // First one processed
-      totalToValidate = (first.remaining || 0) + 1; // remaining + the one we just did
-      if (first.status === 'valid') validated++;
-      if (first.action === 'deleted') deleted++;
-      updateUI(first.remaining, `${first.lead_name} → ${first.status}`);
+      totalToValidate = check.pending_count || 0;
+      if (totalToValidate === 0) {
+        finish('No pending leads to validate!');
+        UI.toast('All leads already validated', { kind: 'success' });
+        return;
+      }
+      if (status) status.textContent = `Starting validation of ${totalToValidate} leads...`;
     } catch (e) {
-      // First call failed — show error and stop
-      const errData = e.data || {};
-      totalToValidate = errData.remaining || 0;
-      failed++;
-      updateUI(totalToValidate, '');
-      finish(`Error: ${e.message}`);
-      UI.toast(e.message || 'Validation failed — check backend', { kind: 'error', duration: 5000 });
+      // Engine check failed — show descriptive error
+      finish('Error: ' + (e.message || 'Cannot reach backend'));
+      UI.toast(e.message || 'WhatsApp engine not reachable', { kind: 'error', duration: 8000 });
+      running = false;
       return;
     }
 
-    // Loop until done
+    // ─── Step 2: Validate one-by-one ───────────────────────────────
+    let consecutiveErrors = 0;
+
     while (!stopped) {
       try {
         const r = await API.post('/validate_next.php', {});
+        consecutiveErrors = 0; // reset on success
+
         if (r.done) {
           finish(`Done! Valid: ${validated} | Deleted: ${deleted} | Failed: ${failed}`);
           UI.toast(`Validation complete — ${validated} valid, ${deleted} removed`, { kind: 'success' });
@@ -105,23 +110,36 @@
         updateUI(r.remaining, `${r.lead_name} → ${r.status}`);
 
         // Refresh lead list every 10 validations
-        if ((validated + deleted + failed) % 10 === 0) {
+        if ((validated + deleted) % 10 === 0) {
           if (window.LEADS) LEADS.load(false);
         }
+
+        // Small delay between calls (1s) to not overwhelm WhatsApp
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
       } catch (e) {
         failed++;
+        consecutiveErrors++;
         const errData = e.data || {};
+        const errorCode = errData.error_code || '';
         updateUI(errData.remaining || 0, `Error: ${e.message}`);
 
-        // If backend is completely down, stop after 3 consecutive failures
-        if (failed >= 3 && validated === 0 && deleted === 0) {
-          finish(`Stopped — backend unreachable. ${e.message}`);
-          UI.toast(e.message || 'Backend not reachable, stopping validation', { kind: 'error', duration: 5000 });
+        // If engine_not_ready or server_error — stop immediately with clear message
+        if (errorCode === 'engine_not_ready' || errorCode === 'server_error') {
+          finish(`Stopped — ${e.message}`);
+          UI.toast(e.message, { kind: 'error', duration: 8000 });
           return;
         }
 
-        // Otherwise wait a bit and retry
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        // If backend completely down, stop after 3 consecutive failures
+        if (consecutiveErrors >= 3) {
+          finish(`Stopped after ${consecutiveErrors} errors — ${e.message}`);
+          UI.toast(e.message || 'Backend not responding, stopping', { kind: 'error', duration: 8000 });
+          return;
+        }
+
+        // Wait longer before retry on error
+        await new Promise(resolve => setTimeout(resolve, 3000));
       }
     }
 
