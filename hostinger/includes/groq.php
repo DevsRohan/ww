@@ -85,42 +85,63 @@ class Groq
 
         $system = <<<SYS
 You are a WhatsApp cold outreach expert for "$brand".
-Write the FIRST message to a business owner. Think of it as a WhatsApp chat — NOT an email.
+Write the FIRST message to a business owner. This is WhatsApp — NOT email. NOT LinkedIn.
+
+YOUR SECRET FORMULA (follow this exact structure):
+LINE 1: "Hi [business name] 👋" — casual opener
+LINE 2: CURIOSITY HOOK — point out something specific about their business that hints at a problem or missed opportunity. Make them think "kya dekha isne?" Don't reveal the full solution yet.
+LINE 3: PARTIAL VALUE REVEAL — hint at the result (with a number) but don't explain HOW fully. Create an information gap they want to close.
+LINE 4: SOCIAL PROOF + CTA — mention others in their city/industry getting results + ultra-easy CTA ("batau?" / "dekhoge?" / "interested?")
+LINE 5: "— $signature"
 
 STRICT RULES:
-1. Output ONLY the message text. No labels, no markdown, no quotes around it.
-2. MAXIMUM 40-60 words total. 4 short lines max. This is WhatsApp, not email.
-3. Each line separated by a blank line (double newline).
-4. Tone: casual, friendly, like texting a potential business friend. NOT corporate/formal.
-5. ONE specific data point about them (rating, reviews count, or something visible). No generic flattery.
-6. ONE clear benefit — what THEY get. Use a specific number (%, time saved, leads increase, etc).
-7. Add a LOCAL SOCIAL PROOF line: "already [X]+ [similar businesses] in [city] use this" or "last week ek [similar business] ne same setup se [result] dekha". This creates curiosity + FOMO.
-8. CTA must be ultra-easy single line: "batao", "interested?", "haan bol do bas". Reader should feel they only need to type 1 word.
-9. Sign off: "— $signature" (own line, after blank line).
-10. Max 1-2 emojis (👋 opener only).
-11. NO: "I came across", "I noticed", "I'd love to", "reputation precedes", "testament to", "streamline", "optimize". These scream mass message.
-12. Start with "Hi [business name] 👋" — casual.
+1. Output ONLY the message text. No labels, no markdown, no quotes.
+2. MAXIMUM 40-55 words. 4-5 short lines. Each separated by blank line.
+3. Tone: casual friend, NOT marketer. Like you're doing them a favor by sharing something.
+4. CURIOSITY > SELLING. Reader must feel "I NEED to reply to know more". Don't give away everything.
+5. Use ONE specific data point about them (review count, rating, or visible gap).
+6. Benefit must have a NUMBER (%, x times, time saved, rupees, leads count).
+7. Social proof: "[X]+ [similar businesses] in [city]..." — creates FOMO.
+8. CTA: one-word-reply friendly. "batau?", "dekhoge?", "interested?", "bhejun details?"
+9. Sign off: "— $signature" (own line after blank line).
+10. Max 1 emoji (👋 only).
+11. BANNED WORDS: "I came across", "I noticed", "I'd love to", "reputation", "testament", "streamline", "optimize", "collaboration", "explore", "leverage". Instant delete if used.
+12. The message should feel like a PERSONAL observation, not a pitch. Reader should NOT feel this is sent to 100 people.
 $languageInstr
 
-EXAMPLE (Hinglish, digital agency):
-Hi [Name] 👋
+EXAMPLE (Hinglish — salon):
+Hi Raj Salon 👋
 
-[Name] ki [X] reviews dekhi - kaafi solid kaam kar rahe ho [city] mein.
+Aapki 180 reviews mein 12 logon ne "waiting time" mention kiya hai — ek simple WhatsApp booking system se ye zero ho sakta hai.
 
-Ek idea tha - humara white-label AI chatbot aapke clients ka lead response time 2 min se kam kar deta hai. Aap apni branding ke saath resell kar sakte ho.
-
-Patna mein 5+ agencies already use kar rahi hain. Interested ho toh batao, 2 min mein samjha dunga.
+Patna mein 6 salons ne last month start kiya, missed calls 70% down. Batau kaise kaam karta hai?
 
 — $signature
 
-EXAMPLE (English, professional):
-Hi [Name] 👋
+EXAMPLE (English — digital agency):
+Hi Digital Solutions 👋
 
-[X] reviews — clearly doing great work in [city].
+Your clients' websites are getting traffic but I bet less than 3% converts to enquiries — most agencies face this.
 
-Quick one — our AI chatbot handles client enquiries 24/7 and books appointments automatically. 3 clinics in [city] started last month, seeing 40% more bookings already.
+We built an AI chatbot that fixes this. 5 agencies in Patna already reselling it under their brand. Want me to show how?
 
-Worth a look? Just reply 'yes'.
+— $signature
+
+EXAMPLE (Hinglish — restaurant):
+Hi Tandoor House 👋
+
+Aapki Google listing pe "delivery" search kar rahe log hain lekin aapka koi online order system nahi dikh raha — shayad 30-40 orders daily miss ho rahe.
+
+3 restaurants ne last week setup kiya, week 1 mein 2x orders. Batau?
+
+— $signature
+
+EXAMPLE (English — clinic):
+Hi City Care Clinic 👋
+
+Noticed 40% of your Google reviews mention "hard to book appointment" — fixable in 1 day with WhatsApp auto-booking.
+
+3 clinics here using it, no-shows dropped 60%. Worth 2 min? Reply 'yes'.
 
 — $signature
 SYS;
@@ -436,39 +457,31 @@ USR;
             $lang = self::resolveLanguageByBusinessType($bizType, $lang);
         }
 
-        // Trust line (specific data point)
-        $trust = '';
-        if ($rating && (float)$rating >= 4.0 && $reviews) {
-            $trust = ($lang === 'business_english')
-                ? "{$reviews} reviews — clearly doing solid work in {$city}."
-                : "{$name} ki {$reviews} reviews dekhi — kaafi solid kaam kar rahe ho" . ($city ? " {$city} mein." : ".");
-        } elseif ($city) {
-            $trust = ($lang === 'business_english')
-                ? "Saw {$name} in {$city} — interesting work."
-                : "{$name} ko {$city} mein dekha — accha kaam.";
-        }
+        $cityText = $city ?: 'aapke area';
 
-        // Value + social proof based on pitch type
+        // Curiosity hook + value + social proof (mixed approach)
         if ($pitchType === 'type_a') {
-            $value = ($lang === 'business_english')
-                ? "Quick one — our WhatsApp automation captures leads from your site 24/7 and responds in under 2 min. 5+ businesses in {$city} started last month, seeing 3x more enquiries already."
-                : "Ek idea tha — humara WhatsApp automation aapki website se leads capture karke 2 min mein respond karta hai. {$city} mein 5+ businesses already use kar rahi hain, 3x zyada enquiries aa rahi hain.";
+            // Has website — hint at conversion problem
+            $hook = ($lang === 'business_english')
+                ? "Your site is getting visitors but I'd guess less than 3% turn into actual enquiries — most businesses in {$cityText} face this."
+                : "Aapki website pe traffic aa raha hoga lekin shayad 3% se kam log actually enquiry karte honge — {$cityText} mein ye common hai.";
+            $proof = ($lang === 'business_english')
+                ? "5+ businesses here fixed this with a simple WhatsApp auto-responder — enquiries doubled in week 1. Want me to show how?"
+                : "{$cityText} mein 5+ businesses ne ek simple WhatsApp auto-responder se ye fix kiya — enquiries double ho gayi. Batau kaise?";
         } else {
-            $value = ($lang === 'business_english')
-                ? "Quick one — a simple landing page with WhatsApp enquiry can 3x your incoming leads. Set up 8+ of these in {$city} last month — all seeing results in week 1."
-                : "Ek idea tha — ek simple landing page with WhatsApp enquiry se leads 3x ho jaati hain. {$city} mein 8+ businesses ko last month setup kiya — sabko week 1 mein results dikhe.";
+            // No website — hint at missed customers
+            $hook = ($lang === 'business_english')
+                ? "People are searching for businesses like yours on Google but without a landing page, you're probably losing 30-40 potential customers daily."
+                : "Log Google pe aapke jaisi business search kar rahe hain lekin bina landing page ke shayad 30-40 customers daily miss ho rahe hain.";
+            $proof = ($lang === 'business_english')
+                ? "Set up 8+ of these in {$cityText} last month — all seeing leads from day 1. Takes just 2 days. Interested?"
+                : "{$cityText} mein 8+ businesses ko last month setup kiya — sabko day 1 se leads aaye. Bas 2 din lagta hai. Dekhoge?";
         }
-
-        // Ultra-easy CTA
-        $cta = ($lang === 'business_english')
-            ? "Worth a look? Just reply 'yes'."
-            : "Interested ho toh batao, 2 min mein samjha dunga.";
 
         return implode("\n\n", array_filter([
             "Hi {$name} 👋",
-            $trust,
-            $value,
-            $cta,
+            $hook,
+            $proof,
             "— {$signature}",
         ]));
     }
