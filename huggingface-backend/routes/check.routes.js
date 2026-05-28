@@ -25,7 +25,11 @@ router.post('/check-number', apiKeyAuth, async (req, res, next) => {
     return res.json({ ok: true, result });
   } catch (err) {
     if (err.code) {
-      return res.status(err.status || 500).json({ ok: false, error: err.code });
+      return res.status(err.status || 500).json({
+        ok: false,
+        error: err.code,
+        message: err.message || err.code,
+      });
     }
     return next(err);
   }

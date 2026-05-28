@@ -124,8 +124,8 @@
         const errorCode = errData.error_code || '';
         updateUI(errData.remaining || 0, `Error: ${e.message}`);
 
-        // If engine_not_ready or server_error — stop immediately with clear message
-        if (errorCode === 'engine_not_ready' || errorCode === 'server_error') {
+        // If engine_not_ready or server_error or puppeteer crash — stop immediately with clear message
+        if (errorCode === 'engine_not_ready' || errorCode === 'server_error' || errorCode === 'puppeteer_error') {
           finish(`Stopped — ${e.message}`);
           UI.toast(e.message, { kind: 'error', duration: 8000 });
           return;

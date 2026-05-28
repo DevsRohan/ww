@@ -72,6 +72,7 @@ if (empty($resp['ok'])) {
         'invalid_response'        => 'Backend returned invalid response (HTTP ' . $httpCode . ').',
         'engine_not_ready'        => 'WhatsApp not connected! Scan QR code first, then retry.',
         'server_error'            => $backendMsg ?: 'WhatsApp engine error. Wait 30s and retry.',
+        'puppeteer_error'         => $backendMsg ?: 'WhatsApp Web page crashed. Go to Settings → Restart Engine, then retry.',
         'invalid_phone'           => 'Invalid phone number format for this lead.',
         default                   => $backendMsg ?: ('Validation error: ' . $reason),
     };

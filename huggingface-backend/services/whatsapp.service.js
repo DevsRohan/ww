@@ -258,8 +258,12 @@ class WhatsAppService {
     let registered = true;
     try {
       registered = await this.client.isRegisteredUser(chatId);
-    } catch (_) {
-      registered = true; // fail-open: try anyway
+    } catch (pupErr) {
+      // Puppeteer crash — fail-open for sends, log warning
+      logger.warn('isRegisteredUser failed during send, proceeding anyway', {
+        err: pupErr.message,
+      });
+      registered = true;
     }
     if (!registered) {
       const err = new Error('not_on_whatsapp');
@@ -268,7 +272,22 @@ class WhatsAppService {
       throw err;
     }
 
-    const sent = await this.client.sendMessage(chatId, message);
+    let sent;
+    try {
+      sent = await this.client.sendMessage(chatId, message);
+    } catch (pupErr) {
+      logger.error('sendMessage puppeteer error', {
+        phone: toPhone,
+        err: pupErr.message,
+      });
+      const wrapped = new Error(
+        'WhatsApp Web page error during send: ' + pupErr.message +
+        '. Try restarting the engine.'
+      );
+      wrapped.code = 'puppeteer_error';
+      wrapped.status = 503;
+      throw wrapped;
+    }
     return {
       wa_message_id: sent.id?._serialized || null,
       to: phone.fromChatId(chatId),
@@ -296,7 +315,27 @@ class WhatsAppService {
       err.status = 400;
       throw err;
     }
-    const registered = await this.client.isRegisteredUser(chatId);
+    let registered;
+    try {
+      registered = await this.client.isRegisteredUser(chatId);
+    } catch (pupErr) {
+      // Puppeteer/page errors (e.g., "window.require is not a function")
+      // indicate stale WA Web cache or page crash — needs restart
+      logger.error('checkNumber puppeteer error', {
+        phone: toPhone,
+        err: pupErr.message,
+      });
+      // Auto-schedule recovery
+      this.state = CONNECTION_STATES.DISCONNECTED;
+      this._scheduleRecovery(5000);
+      const wrapped = new Error(
+        'WhatsApp Web page error: ' + pupErr.message +
+        '. Engine is auto-restarting — retry in 30-60 seconds.'
+      );
+      wrapped.code = 'puppeteer_error';
+      wrapped.status = 503;
+      throw wrapped;
+    }
     return {
       phone: phone.fromChatId(chatId),
       registered,
