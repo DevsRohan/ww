@@ -14,6 +14,9 @@ $pageTitle = 'Inbox';
       <div class="flex items-center justify-between mb-3">
         <h2 class="text-[15px] font-semibold tracking-tight">Leads</h2>
         <div class="flex items-center gap-1">
+          <button data-action="validate-all" class="icon-btn" title="Validate All Numbers" id="btn-validate-all">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          </button>
           <button data-action="upload-csv" class="icon-btn" title="Upload CSV">
             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           </button>
@@ -37,6 +40,20 @@ $pageTitle = 'Inbox';
         <button data-filter="pending" class="chip">Pending</button>
         <button data-filter="type_a" class="chip">Has site</button>
         <button data-filter="type_b" class="chip">No site</button>
+      </div>
+      <!-- Validate All Progress Bar -->
+      <div id="validate-progress" class="hidden mt-3">
+        <div class="flex items-center justify-between text-[11px] text-ink-600 mb-1">
+          <span id="validate-status">Validating...</span>
+          <span id="validate-count">0/0</span>
+        </div>
+        <div class="w-full bg-ink-200 rounded-full h-2 overflow-hidden">
+          <div id="validate-bar" class="h-2 bg-brand-500 rounded-full transition-all duration-300" style="width: 0%"></div>
+        </div>
+        <div class="flex items-center justify-between mt-1">
+          <span id="validate-detail" class="text-[10px] text-ink-500"></span>
+          <button id="validate-stop" class="text-[10px] text-red-600 font-medium hidden">Stop</button>
+        </div>
       </div>
     </div>
     <div id="lead-list" class="flex-1 overflow-y-auto"></div>

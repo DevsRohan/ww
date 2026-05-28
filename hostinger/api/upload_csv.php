@@ -59,39 +59,19 @@ AppLogger::info('csv_imported', [
     'import_id' => $importId, 'inserted' => $inserted, 'duplicates' => $duplicates, 'failed' => $failed
 ], 'import');
 
-// Auto-validate all newly imported pending leads immediately
-$validated = 0; $deleted = 0;
+// Count pending leads that need validation (frontend will trigger Validate All)
+$pendingCount = 0;
 if ($inserted > 0) {
-    $pendingLeads = LeadRepository::pickPendingValidation(200);
-    if ($pendingLeads) {
-        foreach ($pendingLeads as $pl) {
-            $resp = NodeClient::checkNumber($pl['phone_e164']);
-            if (empty($resp['ok'])) continue;
-            $status = $resp['result']['status'] ?? 'failed';
-            if ($status === 'valid') {
-                LeadRepository::setWhatsappStatus((int)$pl['id'], 'valid');
-                $validated++;
-            } else {
-                // Not on WhatsApp — delete the lead
-                DB::execute('DELETE FROM messages WHERE lead_id = ?', [$pl['id']]);
-                DB::execute('DELETE FROM activity_log WHERE lead_id = ?', [$pl['id']]);
-                DB::execute('DELETE FROM leads WHERE id = ?', [$pl['id']]);
-                $deleted++;
-            }
-        }
-        AppLogger::info('csv_auto_validate', [
-            'validated' => $validated, 'deleted' => $deleted
-        ], 'import');
-    }
+    $row = DB::fetch("SELECT COUNT(*) AS c FROM leads WHERE whatsapp_status = 'pending'");
+    $pendingCount = (int)($row['c'] ?? 0);
 }
 
 json_ok([
-    'import_id'  => $importId,
-    'total'      => $parsed['total'],
-    'inserted'   => $inserted,
-    'duplicates' => $duplicates,
-    'failed'     => $failed,
-    'validated'  => $validated,
-    'deleted_invalid' => $deleted,
-    'errors'     => array_slice($errors, 0, 20),
+    'import_id'       => $importId,
+    'total'           => $parsed['total'],
+    'inserted'        => $inserted,
+    'duplicates'      => $duplicates,
+    'failed'          => $failed,
+    'pending_validation' => $pendingCount,
+    'errors'          => array_slice($errors, 0, 20),
 ]);

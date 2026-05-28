@@ -19,6 +19,13 @@
       UI.toast(`Imported ${r.inserted} new, ${r.duplicates} duplicate, ${r.failed} failed`);
       LEADS.load(false);
       STATS.refresh();
+      // Auto-trigger validation if there are pending leads
+      if (r.pending_validation && r.pending_validation > 0) {
+        setTimeout(() => {
+          UI.toast(`${r.pending_validation} leads need WhatsApp validation. Starting...`, { kind: 'info' });
+          VALIDATE.start();
+        }, 1000);
+      }
     } catch (e) {
       UI.toast('Upload failed: ' + (e.message || ''), { kind: 'error' });
     }

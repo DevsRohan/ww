@@ -136,6 +136,7 @@
     CHAT.init();
     DETAILS.init();
     UPLOAD.init();
+    VALIDATE.init();
     CAMPAIGN.init();
     STATS.start();
     bootSocketStatus();

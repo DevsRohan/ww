@@ -9,6 +9,7 @@
 <script src="assets/js/chat.js?v=<?= $v ?>"></script>
 <script src="assets/js/details.js?v=<?= $v ?>"></script>
 <script src="assets/js/upload.js?v=<?= $v ?>"></script>
+<script src="assets/js/validate.js?v=<?= $v ?>"></script>
 <script src="assets/js/campaign.js?v=<?= $v ?>"></script>
 <script src="assets/js/settings.js?v=<?= $v ?>"></script>
 <script src="assets/js/app.js?v=<?= $v ?>"></script>

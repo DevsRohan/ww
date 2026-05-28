@@ -10,12 +10,34 @@ $lead = LeadRepository::findById($leadId);
 if (!$lead) json_fail('lead_not_found', 404);
 
 $res = NodeClient::checkNumber($lead['phone_e164']);
+
 if (empty($res['ok'])) {
-    json_fail($res['error'] ?? 'check_failed', 502, ['detail' => $res]);
+    // Node backend unreachable or returned error — don't mark as failed in DB,
+    // just tell user why so they can retry
+    $reason = $res['error'] ?? 'unknown';
+    $detail = $res['detail'] ?? ($res['raw'] ?? '');
+    $httpCode = $res['http'] ?? 0;
+
+    $userMessage = match($reason) {
+        'curl_error'         => 'WhatsApp engine not reachable. Check if backend is running.',
+        'node_url_not_configured' => 'Backend URL not configured in settings.',
+        'invalid_response'   => 'Backend returned invalid response (HTTP ' . $httpCode . ').',
+        default              => 'Validation failed: ' . $reason,
+    };
+
+    AppLogger::warn('validate_lead_failed', [
+        'lead_id' => $leadId, 'phone' => $lead['phone_e164'],
+        'error' => $reason, 'http' => $httpCode
+    ], 'validate');
+
+    json_fail($userMessage, 502, ['error_code' => $reason, 'http' => $httpCode]);
 }
+
 $status = $res['result']['status'] ?? 'failed';
+
+// Update lead status
 LeadRepository::setWhatsappStatus($leadId, $status);
-if ($status === 'not_on_whatsapp') {
+if ($status === 'not_on_whatsapp' || $status === 'invalid') {
     LeadRepository::setOutreachStatus($leadId, 'skipped');
 }
 

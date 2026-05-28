@@ -196,8 +196,10 @@
         const id = btn.getAttribute('data-id');
         if (!id) return;
         if (action === 'validate-lead') {
-          try { const r = await API.post('/validate_lead.php', { lead_id: id }); UI.toast('Status: ' + r.status); open(id); LEADS.load(false); }
-          catch (e) { UI.toast('Failed', { kind: 'error' }); }
+          btn.textContent = 'Validating…';
+          btn.disabled = true;
+          try { const r = await API.post('/validate_lead.php', { lead_id: id }); UI.toast('WhatsApp status: ' + r.status, { kind: r.status === 'valid' ? 'success' : 'warn' }); open(id); LEADS.load(false); }
+          catch (e) { UI.toast(e.message || 'Validation failed — check if WhatsApp engine is running', { kind: 'error', duration: 5000 }); btn.textContent = 'Re-validate WA'; btn.disabled = false; }
         }
         if (action === 'send-first') {
           try { await API.post('/send_first_outreach.php', { lead_id: id }); UI.toast('Queued'); CHAT.openLead(parseInt(id, 10)); open(id); }
