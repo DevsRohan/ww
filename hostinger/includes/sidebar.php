@@ -75,6 +75,7 @@ $user = Auth::user();
     <div class="text-[11px] font-medium uppercase tracking-wider text-ink-500 px-3 mt-6 mb-2">Quick Actions</div>
     <div class="px-3 space-y-2">
       <button data-action="upload-csv" class="btn-primary w-full justify-center text-xs">Upload CSV</button>
+      <button data-action="validate-all" class="btn-ghost w-full justify-center text-xs">Validate All Pending</button>
       <button data-action="start-campaign" class="btn-ghost w-full justify-center text-xs">Start Campaign</button>
       <button data-action="pause-campaign" class="btn-ghost w-full justify-center text-xs">Pause Campaign</button>
     </div>

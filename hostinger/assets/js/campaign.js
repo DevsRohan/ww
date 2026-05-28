@@ -1,4 +1,4 @@
-/* campaign.js — start/pause campaign actions */
+/* campaign.js — start/pause campaign + validate all actions */
 (function () {
   async function start() {
     UI.modal({
@@ -15,7 +15,7 @@
       onConfirm: async () => {
         try {
           const r = await API.post('/start_campaign.php', {});
-          UI.toast(`Campaign started · ${r.queued} leads queued`);
+          UI.toast(`Campaign started · ${r.queued} leads queued · ${r.sent_now || 0} sent now`);
           STATS.refresh();
         } catch (e) { UI.toast('Failed to start: ' + (e.message || ''), { kind: 'error' }); }
       }
@@ -29,12 +29,23 @@
     } catch (e) { UI.toast('Pause failed', { kind: 'error' }); }
   }
 
+  async function validateAll() {
+    UI.toast('Validating all pending leads...');
+    try {
+      const r = await API.post('/validate_all.php', {});
+      UI.toast(`Done! ${r.validated} leads validated as valid`);
+      STATS.refresh();
+      LEADS.load(false);
+    } catch (e) { UI.toast('Validate failed: ' + (e.message || ''), { kind: 'error' }); }
+  }
+
   function init() {
     document.addEventListener('click', (e) => {
       if (e.target.closest('[data-action="start-campaign"]')) start();
       if (e.target.closest('[data-action="pause-campaign"]')) pause();
+      if (e.target.closest('[data-action="validate-all"]')) validateAll();
     });
   }
 
-  window.CAMPAIGN = { init, start, pause };
+  window.CAMPAIGN = { init, start, pause, validateAll };
 })();
