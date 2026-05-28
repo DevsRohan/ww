@@ -141,24 +141,51 @@ function handle_outbound(array $p): void
     $waId = $p['wa_message_id'] ?? null;
     $status = $p['status'] ?? null;
     $jobId = $p['meta']['jobId'] ?? ($p['jobId'] ?? null);
+    $leadIdFromMeta = $p['meta']['lead_id'] ?? null;
     if (!$status) return;
 
     $msg = null;
+    // Try to find message by wa_message_id first (most reliable)
     if ($waId) $msg = MessageRepository::findByWaId($waId);
+    // Fallback: find by jobId in meta JSON
     if (!$msg && $jobId) {
         $msg = DB::fetch("SELECT * FROM messages WHERE JSON_UNQUOTE(JSON_EXTRACT(meta, '$.jobId')) = ? ORDER BY id DESC LIMIT 1", [$jobId]);
     }
+    // Last fallback: find by lead_id + is_first_outreach + queued status
+    if (!$msg && $leadIdFromMeta) {
+        $msg = DB::fetch("SELECT * FROM messages WHERE lead_id = ? AND is_first_outreach = 1 AND status = 'queued' ORDER BY id DESC LIMIT 1", [$leadIdFromMeta]);
+    }
+
     if ($msg) {
-        if ($waId) {
+        // Update message status + wa_message_id
+        if ($waId && (empty($msg['wa_message_id']) || $msg['wa_message_id'] !== $waId)) {
             DB::execute('UPDATE messages SET wa_message_id = ?, status = ?, updated_at = NOW() WHERE id = ?', [$waId, $status, $msg['id']]);
         } else {
             DB::execute('UPDATE messages SET status = ?, updated_at = NOW() WHERE id = ?', [$status, $msg['id']]);
         }
+
         $leadId = (int)$msg['lead_id'];
-        if ($status === 'sent') LeadRepository::markOutbound($leadId);
-        if (in_array($status, ['sent','delivered','read'])) {
-            LeadRepository::setOutreachStatus($leadId, $status);
+
+        // Update lead outreach status
+        if ($status === 'sent') {
+            LeadRepository::setOutreachStatus($leadId, 'sent');
+            LeadRepository::markOutbound($leadId);
+        } elseif ($status === 'delivered') {
+            LeadRepository::setOutreachStatus($leadId, 'delivered');
+        } elseif ($status === 'read') {
+            LeadRepository::setOutreachStatus($leadId, 'read');
+        } elseif ($status === 'failed') {
+            LeadRepository::setOutreachStatus($leadId, 'failed');
         }
+
+        AppLogger::info('outbound_status_updated', [
+            'msg_id' => $msg['id'], 'lead_id' => $leadId,
+            'status' => $status, 'wa_id' => $waId, 'jobId' => $jobId
+        ], 'webhook');
+    } else {
+        AppLogger::warn('outbound_status_no_match', [
+            'wa_id' => $waId, 'jobId' => $jobId, 'status' => $status, 'lead_id' => $leadIdFromMeta
+        ], 'webhook');
     }
 }
 

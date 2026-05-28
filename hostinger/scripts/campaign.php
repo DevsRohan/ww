@@ -34,9 +34,9 @@ if ($sentToday >= $cfg['daily_limit']) {
     return;
 }
 $remaining = $cfg['daily_limit'] - $sentToday;
-$batch = (int) min($cfg['batch_size'], $remaining);
+$batch = 1; // Send ONE lead per cron tick (next tick after delay)
 
-if ($batch <= 0) {
+if ($remaining <= 0) {
     if (PHP_SAPI !== 'cli') json_ok(['picked' => 0]);
     return;
 }
