@@ -15,10 +15,8 @@ async function dispatch(eventType, payload) {
     logger.debug('webhook url not set; skipping dispatch', { eventType });
     return { skipped: true };
   }
-  if (!config.webhookSecret) {
-    logger.warn('webhook secret missing; not dispatching for safety', { eventType });
-    return { skipped: true };
-  }
+  // NOTE: Removed webhookSecret requirement — PHP side does no signature check
+  // so blocking dispatch when secret is missing just silently breaks status updates.
 
   const eventId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   const body = JSON.stringify({
@@ -27,7 +25,7 @@ async function dispatch(eventType, payload) {
     ts: Date.now(),
     payload,
   });
-  const signature = sign(body, config.webhookSecret);
+  const signature = config.webhookSecret ? sign(body, config.webhookSecret) : 'none';
 
   try {
     await retry(
