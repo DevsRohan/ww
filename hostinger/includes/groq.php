@@ -50,29 +50,38 @@ class Groq
 
     private static function buildPrompt(array $lead, array $owner): array
     {
-        $business   = $lead['business_name'] ?? 'this business';
-        $locality   = $lead['locality'] ?? '';
-        $city       = $lead['city'] ?? '';
-        $state      = $lead['state'] ?? '';
-        $rating     = $lead['rating'] ?? null;
-        $reviews    = $lead['review_count'] ?? null;
-        $website    = $lead['website_status'] ?? 'unknown';
-        $pitchType  = $lead['pitch_type'] ?? 'unknown';
-        $language   = $lead['language_preference'] ?? 'hinglish';
-        $signature  = $owner['signature'] ?? 'Rohan from Rohan Digital';
-        $brand      = $owner['brand_name'] ?? 'Rohan Digital';
+        $business     = $lead['business_name'] ?? 'this business';
+        $businessType = $lead['business_type'] ?? '';
+        $locality     = $lead['locality'] ?? '';
+        $city         = $lead['city'] ?? '';
+        $state        = $lead['state'] ?? '';
+        $rating       = $lead['rating'] ?? null;
+        $reviews      = $lead['review_count'] ?? null;
+        $website      = $lead['website_status'] ?? 'unknown';
+        $pitchType    = $lead['pitch_type'] ?? 'unknown';
+        $language     = $lead['language_preference'] ?? 'hinglish';
+        $signature    = $owner['signature'] ?? 'Rohan from Rohan Digital';
+        $brand        = $owner['brand_name'] ?? 'Rohan Digital';
 
-        $services = self::pickServices($pitchType, $business);
+        // Override language based on business type (professional vs local)
+        if ($businessType !== '') {
+            $language = self::resolveLanguageByBusinessType($businessType, $language);
+        }
+
+        $services = self::pickServices($pitchType, $business, $businessType);
         $servicesLine = implode(', ', $services);
 
         $languageInstr = self::languageInstruction($language);
         $pitchInstr    = self::pitchInstruction($pitchType);
+        $industryInstr = self::industryInstruction($businessType);
 
         $location = trim(implode(', ', array_filter([$locality, $city, $state])));
         $trustSnippet = '';
         if ($rating !== null && (float)$rating > 0) {
             $trustSnippet = "Rating: $rating" . ($reviews ? " ($reviews reviews)" : "");
         }
+
+        $businessTypeContext = $businessType !== '' ? "- Business Type: $businessType" : '';
 
         $system = <<<SYS
 You are an expert cold outreach copywriter for a digital agency named "$brand".
@@ -87,17 +96,20 @@ Hard rules:
 7. End with a soft, low-friction CTA inviting a short reply (not a phone call).
 8. Sign off with: "— $signature".
 9. Sound like a real human messaging on WhatsApp, not a marketer.
+10. Message should feel SO relevant that the reader thinks you understand their specific industry.
 $languageInstr
 SYS;
 
         $user = <<<USR
 LEAD CONTEXT
 - Business: $business
+$businessTypeContext
 - Location: $location
 - Website status: $website
 - Trust signal: $trustSnippet
 - Pitch type: $pitchType
 $pitchInstr
+$industryInstr
 
 PICK FROM THESE RELEVANT SERVICES (use 1-2 maximum, mention naturally, never list all):
 $servicesLine
@@ -141,15 +153,154 @@ USR;
         }
     }
 
-    private static function pickServices(string $pitchType, string $businessName): array
+    private static function pickServices(string $pitchType, string $businessName, string $businessType = ''): array
     {
-        $a = ['CRM Automation', 'AI Agent', 'WhatsApp Automation', 'Funnel Optimization', 'Website Speed & Conversion Audit'];
-        $b = ['Business Website', 'Landing Page', 'Google My Business Optimization', 'Mobile-first Website', 'Enquiry / Lead Form System'];
-        $pool = $pitchType === 'type_a' ? $a : ($pitchType === 'type_b' ? $b : array_merge(array_slice($a, 0, 2), array_slice($b, 0, 2)));
+        // Industry-specific service pools based on business type
+        $typeKey = strtolower(trim($businessType));
+        $industryServices = self::industryServicePool($typeKey);
+
+        if (!empty($industryServices)) {
+            $pool = $industryServices;
+        } else {
+            // Fallback to website-status-based pools
+            $a = ['CRM Automation', 'AI Agent', 'WhatsApp Automation', 'Funnel Optimization', 'Website Speed & Conversion Audit'];
+            $b = ['Business Website', 'Landing Page', 'Google My Business Optimization', 'Mobile-first Website', 'Enquiry / Lead Form System'];
+            $pool = $pitchType === 'type_a' ? $a : ($pitchType === 'type_b' ? $b : array_merge(array_slice($a, 0, 2), array_slice($b, 0, 2)));
+        }
+
         // Stable but lightly varied selection
         $seed = crc32($businessName);
         shuffle_with_seed($pool, $seed);
         return array_slice($pool, 0, 3);
+    }
+
+    /**
+     * Return industry-specific service offerings based on business type.
+     */
+    private static function industryServicePool(string $type): array
+    {
+        if (!$type) return [];
+
+        // Digital / IT / Agency
+        if (str_contains($type, 'digital marketing') || str_contains($type, 'it ') || str_contains($type, 'software') || str_contains($type, 'agency')) {
+            return ['White-label AI Chatbot', 'Collaboration / Reseller Partnership', 'Lead Generation Automation', 'Client Reporting Dashboard', 'WhatsApp API Integration'];
+        }
+        // Restaurant / Cafe / Food
+        if (str_contains($type, 'restaurant') || str_contains($type, 'cafe') || str_contains($type, 'dhaba') || str_contains($type, 'food')) {
+            return ['Online Menu & Ordering Page', 'Google My Business Optimization', 'WhatsApp Order Automation', 'Table Reservation System', 'Customer Review Collection'];
+        }
+        // Salon / Beauty / Spa
+        if (str_contains($type, 'salon') || str_contains($type, 'parlour') || str_contains($type, 'parlor') || str_contains($type, 'beauty') || str_contains($type, 'spa')) {
+            return ['Online Booking System', 'WhatsApp Appointment Reminders', 'Instagram-linked Portfolio Website', 'Google Maps Listing Optimization', 'Customer Loyalty Automation'];
+        }
+        // Doctor / Clinic / Healthcare
+        if (str_contains($type, 'doctor') || str_contains($type, 'clinic') || str_contains($type, 'dentist') || str_contains($type, 'hospital') || str_contains($type, 'healthcare')) {
+            return ['Patient Appointment Booking', 'WhatsApp Prescription & Follow-up', 'Google My Business for Clinics', 'Professional Medical Website', 'Patient Review Management'];
+        }
+        // Gym / Fitness
+        if (str_contains($type, 'gym') || str_contains($type, 'fitness') || str_contains($type, 'yoga')) {
+            return ['Member Management System', 'WhatsApp Class Reminders', 'Lead Capture Landing Page', 'Online Class Booking', 'Referral Program Automation'];
+        }
+        // Coaching / Education
+        if (str_contains($type, 'coaching') || str_contains($type, 'tuition') || str_contains($type, 'classes') || str_contains($type, 'education') || str_contains($type, 'institute')) {
+            return ['Student Enquiry Funnel', 'WhatsApp Batch Updates', 'Course Landing Page', 'Online Fee Collection', 'Google Ads for Admissions'];
+        }
+        // Hotel / Resort / Travel
+        if (str_contains($type, 'hotel') || str_contains($type, 'resort') || str_contains($type, 'travel')) {
+            return ['Direct Booking Website', 'WhatsApp Concierge Bot', 'OTA-independent Lead Funnel', 'Google Hotel Listing Optimization', 'Guest Review Automation'];
+        }
+        // Law Firm / CA / Consulting
+        if (str_contains($type, 'law') || str_contains($type, 'advocate') || str_contains($type, 'ca ') || str_contains($type, 'chartered') || str_contains($type, 'consult')) {
+            return ['Professional Authority Website', 'Client Intake Automation', 'WhatsApp Document Collection', 'LinkedIn Thought Leadership Funnel', 'CRM for Client Management'];
+        }
+        // Real Estate
+        if (str_contains($type, 'real estate') || str_contains($type, 'property') || str_contains($type, 'builder')) {
+            return ['Property Listing Website', 'WhatsApp Lead Nurturing', 'Virtual Tour Pages', 'Facebook/Google Ads for Plots', 'CRM for Buyer Follow-up'];
+        }
+        // Retail / Shop
+        if (str_contains($type, 'shop') || str_contains($type, 'store') || str_contains($type, 'kirana') || str_contains($type, 'retail')) {
+            return ['Product Catalogue Website', 'WhatsApp Order System', 'Google My Business Setup', 'Local SEO', 'Customer Loyalty WhatsApp Bot'];
+        }
+
+        return [];
+    }
+
+    /**
+     * Industry-specific prompt instructions based on business type.
+     */
+    private static function industryInstruction(string $businessType): string
+    {
+        if ($businessType === '') return '';
+
+        $type = strtolower(trim($businessType));
+
+        if (str_contains($type, 'digital marketing') || str_contains($type, 'agency')) {
+            return "INDUSTRY NOTE: This is a digital agency — pitch COLLABORATION or white-label partnership, NOT basic marketing services they already provide. Think: reseller AI tools, mutual referrals, or white-label chatbots.";
+        }
+        if (str_contains($type, 'restaurant') || str_contains($type, 'cafe') || str_contains($type, 'food')) {
+            return "INDUSTRY NOTE: Restaurant/food business — focus on online ordering, customer reviews, and table reservations. They care about footfall and repeat customers, not abstract 'digital growth'.";
+        }
+        if (str_contains($type, 'salon') || str_contains($type, 'parlour') || str_contains($type, 'beauty')) {
+            return "INDUSTRY NOTE: Salon/beauty business — focus on online booking, appointment reminders, and showcasing their work visually. They value Instagram presence and word-of-mouth.";
+        }
+        if (str_contains($type, 'doctor') || str_contains($type, 'clinic') || str_contains($type, 'dentist')) {
+            return "INDUSTRY NOTE: Medical/clinic — focus on patient convenience (online appointments, WhatsApp follow-ups). Tone must be professional and trustworthy. Never sound salesy.";
+        }
+        if (str_contains($type, 'gym') || str_contains($type, 'fitness')) {
+            return "INDUSTRY NOTE: Gym/fitness — focus on member retention, class scheduling automation, and new member lead capture. They think in terms of memberships and batches.";
+        }
+        if (str_contains($type, 'coaching') || str_contains($type, 'tuition') || str_contains($type, 'classes')) {
+            return "INDUSTRY NOTE: Coaching/education — focus on student enquiry capture, batch management, and parent communication. Admission season matters to them.";
+        }
+        if (str_contains($type, 'hotel') || str_contains($type, 'resort')) {
+            return "INDUSTRY NOTE: Hotel/resort — focus on direct bookings (reducing OTA commissions), guest experience automation, and review management.";
+        }
+        if (str_contains($type, 'law') || str_contains($type, 'advocate') || str_contains($type, 'ca') || str_contains($type, 'chartered')) {
+            return "INDUSTRY NOTE: Professional services (legal/CA) — focus on authority building, client intake automation, and professional credibility. Tone must be very polished.";
+        }
+        if (str_contains($type, 'real estate') || str_contains($type, 'property')) {
+            return "INDUSTRY NOTE: Real estate — focus on lead generation for plots/flats, virtual tours, and CRM for buyer follow-up. They care about qualified leads, not just traffic.";
+        }
+
+        return "INDUSTRY NOTE: Business type is '$businessType' — tailor your pitch to what THIS specific industry actually needs. Don't be generic.";
+    }
+
+    /**
+     * Language resolution based on business type:
+     * Professional → English, Local → Hinglish
+     */
+    private static function resolveLanguageByBusinessType(string $businessType, string $fallback): string
+    {
+        $type = strtolower(trim($businessType));
+
+        $professional = [
+            'digital marketing agency', 'digital marketing', 'it company', 'it services',
+            'software company', 'law firm', 'lawyer', 'advocate', 'ca', 'chartered accountant',
+            'consulting', 'consultancy', 'hotel', 'resort', 'corporate', 'architect',
+            'interior designer', 'real estate', 'export', 'import', 'travel agency',
+            'event management', 'advertising agency', 'media company', 'startup',
+            'coworking', 'fintech', 'edtech', 'clinic chain', 'hospital',
+        ];
+
+        $local = [
+            'shop', 'kirana', 'grocery', 'restaurant', 'dhaba', 'cafe',
+            'salon', 'parlour', 'parlor', 'beauty salon', 'barber',
+            'gym', 'fitness', 'yoga', 'coaching', 'tuition', 'classes',
+            'doctor', 'clinic', 'dentist', 'pharmacy', 'medical store',
+            'tailor', 'boutique', 'jeweller', 'jewellery', 'optician',
+            'garage', 'mechanic', 'electrician', 'plumber', 'carpenter',
+            'sweet shop', 'bakery', 'caterer', 'florist', 'laundry',
+            'pet shop', 'stationery', 'mobile shop', 'electronics shop',
+        ];
+
+        foreach ($professional as $keyword) {
+            if (str_contains($type, $keyword)) return 'business_english';
+        }
+        foreach ($local as $keyword) {
+            if (str_contains($type, $keyword)) return 'hinglish';
+        }
+
+        return $fallback;
     }
 
     private static function callApi(string $apiKey, array $cfg, array $messages): ?string
@@ -206,6 +357,7 @@ USR;
     private static function fallbackMessage(array $lead, array $owner): string
     {
         $name      = $lead['business_name'] ?? 'aapki business';
+        $bizType   = $lead['business_type'] ?? '';
         $city      = $lead['city'] ?? '';
         $rating    = $lead['rating'] ?? null;
         $reviews   = $lead['review_count'] ?? null;
@@ -213,6 +365,11 @@ USR;
         $pitchType = $lead['pitch_type'] ?? 'unknown';
         $signature = $owner['signature'] ?? 'Rohan from Rohan Digital';
         $lang      = $lead['language_preference'] ?? 'hinglish';
+
+        // Override language for fallback too
+        if ($bizType !== '') {
+            $lang = self::resolveLanguageByBusinessType($bizType, $lang);
+        }
 
         $trust = '';
         if ($rating && (float)$rating >= 4.0) {

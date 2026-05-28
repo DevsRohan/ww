@@ -44,6 +44,7 @@
       <div class="detail-section">
         <div class="text-[11px] font-medium uppercase tracking-wider text-ink-500 mb-2">Business Info</div>
         <div class="grid grid-cols-2 gap-y-3">
+          <div class="col-span-2"><div class="detail-label">Business Type</div><div class="detail-value">${fmt(l.business_type)}</div></div>
           <div><div class="detail-label">Locality</div><div class="detail-value">${fmt(l.locality)}</div></div>
           <div><div class="detail-label">City</div><div class="detail-value">${fmt(l.city)}</div></div>
           <div><div class="detail-label">State</div><div class="detail-value">${fmt(l.state)}</div></div>
@@ -127,6 +128,9 @@
 
   function inferAiInsight(l) {
     const parts = [];
+    if (l.business_type) {
+      parts.push(`Industry: ${l.business_type} — AI will craft industry-specific messaging.`);
+    }
     if (l.pitch_type === 'type_a') {
       parts.push('Lead has a website — pitch angle is optimization, AI/CRM/automation, conversion improvements.');
     } else if (l.pitch_type === 'type_b') {

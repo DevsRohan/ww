@@ -58,6 +58,7 @@ class CsvParser
     {
         $aliases = [
             'business_name' => ['business name','name','title','business','company'],
+            'business_type' => ['business type','type','category','business category','industry'],
             'address'       => ['address','full address','location'],
             'phone'         => ['phone','phone number','mobile','contact','contact number','telephone','phone1'],
             'website'       => ['website','url','site','web'],
@@ -86,6 +87,7 @@ class CsvParser
         $get = fn(string $k) => isset($map[$k]) && isset($r[$map[$k]]) ? trim((string)$r[$map[$k]]) : '';
 
         $businessName = sanitize_text($get('business_name'));
+        $businessType = sanitize_text($get('business_type'));
         $phoneRaw     = $get('phone');
         if ($businessName === '' || $phoneRaw === '') {
             return null; // skip silently
@@ -112,11 +114,17 @@ class CsvParser
         $pitchType    = pitch_type_from_website($websiteStat);
         $language     = language_for_state($state);
 
+        // Override language based on business_type (professional vs local)
+        if ($businessType !== '') {
+            $language = self::languageForBusinessType($businessType, $language);
+        }
+
         $rating  = $get('rating');
         $reviews = $get('reviews');
 
         return [
             'business_name'       => mb_substr($businessName, 0, 255),
+            'business_type'       => $businessType !== '' ? mb_substr($businessType, 0, 120) : null,
             'address'             => $address,
             'locality'            => $locality !== '' ? mb_substr($locality, 0, 120) : null,
             'city'                => $city     !== '' ? mb_substr($city, 0, 120)     : null,
@@ -133,5 +141,51 @@ class CsvParser
             'outreach_status'     => 'new',
             'source'              => 'csv_import',
         ];
+    }
+
+    /**
+     * Determine language based on business type:
+     * Professional businesses → English
+     * Local/service businesses → Hinglish
+     */
+    private static function languageForBusinessType(string $businessType, string $fallback): string
+    {
+        $type = strtolower(trim($businessType));
+
+        // Professional businesses → English
+        $professional = [
+            'digital marketing agency', 'digital marketing', 'it company', 'it services',
+            'software company', 'law firm', 'lawyer', 'advocate', 'ca', 'chartered accountant',
+            'consulting', 'consultancy', 'hotel', 'resort', 'corporate', 'architect',
+            'interior designer', 'real estate', 'export', 'import', 'travel agency',
+            'event management', 'advertising agency', 'media company', 'startup',
+            'coworking', 'fintech', 'edtech', 'clinic chain', 'hospital',
+        ];
+
+        // Local businesses → Hinglish
+        $local = [
+            'shop', 'kirana', 'grocery', 'restaurant', 'dhaba', 'cafe',
+            'salon', 'parlour', 'parlor', 'beauty salon', 'barber',
+            'gym', 'fitness', 'yoga', 'coaching', 'tuition', 'classes',
+            'doctor', 'clinic', 'dentist', 'pharmacy', 'medical store',
+            'tailor', 'boutique', 'jeweller', 'jewellery', 'optician',
+            'garage', 'mechanic', 'electrician', 'plumber', 'carpenter',
+            'sweet shop', 'bakery', 'caterer', 'florist', 'laundry',
+            'pet shop', 'stationery', 'mobile shop', 'electronics shop',
+        ];
+
+        foreach ($professional as $keyword) {
+            if (str_contains($type, $keyword)) {
+                return 'business_english';
+            }
+        }
+
+        foreach ($local as $keyword) {
+            if (str_contains($type, $keyword)) {
+                return 'hinglish';
+            }
+        }
+
+        return $fallback;
     }
 }
