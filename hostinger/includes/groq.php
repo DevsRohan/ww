@@ -89,14 +89,15 @@ You write the FIRST WhatsApp message to a local business owner.
 Hard rules:
 1. Output ONLY the final message text. No preface, no labels, no markdown, no quotes.
 2. 4-5 short paragraphs, total 80-130 words.
-3. NO emojis except a single optional 👋 in the opener (keep it tasteful, can omit).
-4. NO pricing. NO urgency. NO ALL CAPS. NO sales clichés.
-5. Mention business name and city/locality naturally.
-6. Mention rating/reviews ONLY if it adds genuine credibility (skip if missing).
-7. End with a soft, low-friction CTA inviting a short reply (not a phone call).
-8. Sign off with: "— $signature".
-9. Sound like a real human messaging on WhatsApp, not a marketer.
-10. Message should feel SO relevant that the reader thinks you understand their specific industry.
+3. EACH PARAGRAPH must be separated by a blank line (double newline). This is critical for WhatsApp readability.
+4. NO emojis except a single optional 👋 in the opener (keep it tasteful, can omit).
+5. NO pricing. NO urgency. NO ALL CAPS. NO sales clichés.
+6. Mention business name and city/locality naturally.
+7. Mention rating/reviews ONLY if it adds genuine credibility (skip if missing).
+8. End with a soft, low-friction CTA inviting a short reply (not a phone call).
+9. Sign off with: "— $signature" (on its own line, after a blank line).
+10. Sound like a real human messaging on WhatsApp, not a marketer.
+11. Message should feel SO relevant that the reader thinks you understand their specific industry.
 $languageInstr
 SYS;
 
@@ -349,9 +350,51 @@ USR;
         // Strip surrounding quotes if AI added any
         $m = trim($msg);
         $m = trim($m, "\"' \t\n\r");
-        // Collapse 3+ newlines
+
+        // Normalize line endings
+        $m = str_replace("\r\n", "\n", $m);
+        $m = str_replace("\r", "\n", $m);
+
+        // Ensure paragraphs are separated by blank lines:
+        // Split into lines, detect paragraph boundaries (sentences ending with .)
+        // and ensure double newline between them
+        $lines = explode("\n", $m);
+        $result = [];
+        $prevWasBlank = false;
+
+        foreach ($lines as $line) {
+            $trimmed = trim($line);
+            if ($trimmed === '') {
+                if (!$prevWasBlank) {
+                    $result[] = '';
+                    $prevWasBlank = true;
+                }
+                continue;
+            }
+            $prevWasBlank = false;
+            $result[] = $trimmed;
+        }
+
+        $m = implode("\n", $result);
+
+        // If AI wrote everything in one block (no \n\n), force paragraph breaks
+        // Split on sentence boundaries that look like paragraph breaks
+        if (substr_count($m, "\n\n") < 2) {
+            // Try to split into paragraphs by detecting logical breaks:
+            // After a period followed by a capital letter or "—" signature
+            $m = preg_replace('/\.(\s+)([A-Z])/', ".\n\n$2", $m);
+            $m = preg_replace('/\.(\s+)(—)/', ".\n\n$2", $m);
+            // Also handle Hindi/Hinglish sentences ending with hai/hain
+            $m = preg_replace('/(hai|hain)\.?\s+([A-Z])/', "$1.\n\n$2", $m);
+        }
+
+        // Ensure signature "— ..." is on its own line with blank line before it
+        $m = preg_replace('/([^\n])\s*(—\s*\w)/', "$1\n\n$2", $m);
+
+        // Collapse 3+ newlines to exactly 2
         $m = preg_replace("/\n{3,}/", "\n\n", $m);
-        return $m;
+
+        return trim($m);
     }
 
     private static function fallbackMessage(array $lead, array $owner): string

@@ -88,7 +88,7 @@ return [
     // Sender identity (used by Groq prompts)
     'owner' => [
         'brand_name'  => 'Rohan Digital',
-        'signature'   => 'Rohan from Rohan Digital',
+        'signature'   => 'DevsArun',
         'offerings'   => 'Landing Pages, Business Websites, eCommerce, Web Apps, AI Agents, Automation, Android Apps, Chrome Extensions, Digital Marketing',
     ],
 
