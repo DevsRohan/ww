@@ -44,6 +44,7 @@
       <div class="detail-section">
         <div class="text-[11px] font-medium uppercase tracking-wider text-ink-500 mb-2">Business Info</div>
         <div class="grid grid-cols-2 gap-y-3">
+          <div class="col-span-2"><div class="detail-label">Business Type</div><div class="detail-value"><span class="badge">${fmt(l.business_type)}</span></div></div>
           <div><div class="detail-label">Locality</div><div class="detail-value">${fmt(l.locality)}</div></div>
           <div><div class="detail-label">City</div><div class="detail-value">${fmt(l.city)}</div></div>
           <div><div class="detail-label">State</div><div class="detail-value">${fmt(l.state)}</div></div>

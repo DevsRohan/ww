@@ -64,6 +64,7 @@ class CsvParser
             'rating'        => ['rating','stars'],
             'reviews'       => ['reviews','review count','reviews count','total reviews'],
             'status'        => ['status','business status'],
+            'business_type' => ['business type','type','category','business category'],
             'city'          => ['city'],
             'state'         => ['state','region'],
             'locality'      => ['locality','area','neighborhood'],
@@ -114,9 +115,11 @@ class CsvParser
 
         $rating  = $get('rating');
         $reviews = $get('reviews');
+        $businessType = sanitize_text($get('business_type'));
 
         return [
             'business_name'       => mb_substr($businessName, 0, 255),
+            'business_type'       => $businessType !== '' ? mb_substr($businessType, 0, 120) : null,
             'address'             => $address,
             'locality'            => $locality !== '' ? mb_substr($locality, 0, 120) : null,
             'city'                => $city     !== '' ? mb_substr($city, 0, 120)     : null,

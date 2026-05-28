@@ -50,23 +50,29 @@ class Groq
 
     private static function buildPrompt(array $lead, array $owner): array
     {
-        $business   = $lead['business_name'] ?? 'this business';
-        $locality   = $lead['locality'] ?? '';
-        $city       = $lead['city'] ?? '';
-        $state      = $lead['state'] ?? '';
-        $rating     = $lead['rating'] ?? null;
-        $reviews    = $lead['review_count'] ?? null;
-        $website    = $lead['website_status'] ?? 'unknown';
-        $pitchType  = $lead['pitch_type'] ?? 'unknown';
-        $language   = $lead['language_preference'] ?? 'hinglish';
-        $signature  = $owner['signature'] ?? 'Rohan from Rohan Digital';
-        $brand      = $owner['brand_name'] ?? 'Rohan Digital';
+        $business     = $lead['business_name'] ?? 'this business';
+        $businessType = $lead['business_type'] ?? '';
+        $locality     = $lead['locality'] ?? '';
+        $city         = $lead['city'] ?? '';
+        $state        = $lead['state'] ?? '';
+        $rating       = $lead['rating'] ?? null;
+        $reviews      = $lead['review_count'] ?? null;
+        $website      = $lead['website_status'] ?? 'unknown';
+        $pitchType    = $lead['pitch_type'] ?? 'unknown';
+        $language     = $lead['language_preference'] ?? 'hinglish';
+        $signature    = $owner['signature'] ?? 'Rohan from Rohan Digital';
+        $brand        = $owner['brand_name'] ?? 'Rohan Digital';
 
-        $services = self::pickServices($pitchType, $business);
+        $services = self::pickServices($pitchType, $businessType, $business);
         $servicesLine = implode(', ', $services);
 
+        // Language: professional businesses get English, local businesses get Hinglish
+        if ($businessType && self::isProfessionalBusiness($businessType)) {
+            $language = 'business_english';
+        }
         $languageInstr = self::languageInstruction($language);
         $pitchInstr    = self::pitchInstruction($pitchType);
+        $bizTypeInstr  = self::businessTypeInstruction($businessType);
 
         $location = trim(implode(', ', array_filter([$locality, $city, $state])));
         $trustSnippet = '';
@@ -87,20 +93,26 @@ Hard rules:
 7. End with a soft, low-friction CTA inviting a short reply (not a phone call).
 8. Sign off with: "— $signature".
 9. Sound like a real human messaging on WhatsApp, not a marketer.
+10. Acknowledge their SPECIFIC industry/business type naturally in the opener or body.
+11. The message should feel SO relevant that the reader thinks "this person actually understands my business".
 $languageInstr
 SYS;
 
         $user = <<<USR
 LEAD CONTEXT
 - Business: $business
+- Business Type: $businessType
 - Location: $location
 - Website status: $website
 - Trust signal: $trustSnippet
 - Pitch type: $pitchType
+$bizTypeInstr
 $pitchInstr
 
 PICK FROM THESE RELEVANT SERVICES (use 1-2 maximum, mention naturally, never list all):
 $servicesLine
+
+IMPORTANT: Write the message as if you deeply understand the challenges of running a "$businessType" business. Reference industry-specific pain points. Make it feel personal, not generic.
 
 Now write the message.
 USR;
@@ -109,6 +121,54 @@ USR;
             ['role' => 'system', 'content' => $system],
             ['role' => 'user',   'content' => $user],
         ];
+    }
+
+    private static function isProfessionalBusiness(string $type): bool
+    {
+        $professional = ['digital marketing agency','software company','it company','consulting firm','law firm','ca firm','chartered accountant','architect','hospital','clinic','hotel','resort','real estate','finance','bank','insurance'];
+        $t = mb_strtolower($type);
+        foreach ($professional as $p) {
+            if (str_contains($t, $p)) return true;
+        }
+        return false;
+    }
+
+    private static function businessTypeInstruction(string $businessType): string
+    {
+        if (!$businessType) return '';
+        $t = mb_strtolower($businessType);
+
+        if (str_contains($t, 'digital marketing') || str_contains($t, 'seo') || str_contains($t, 'web development')) {
+            return "- INDUSTRY CONTEXT: They are a digital agency themselves. Pitch collaboration, white-label services, AI automation tools they can offer their own clients, or overflow work partnership. Do NOT pitch basic digital marketing to them.";
+        }
+        if (str_contains($t, 'restaurant') || str_contains($t, 'cafe') || str_contains($t, 'food')) {
+            return "- INDUSTRY CONTEXT: Food business. Pitch online ordering system, Google Maps visibility, WhatsApp menu/ordering bot, social media content for food photography.";
+        }
+        if (str_contains($t, 'salon') || str_contains($t, 'spa') || str_contains($t, 'beauty')) {
+            return "- INDUSTRY CONTEXT: Beauty/wellness business. Pitch appointment booking system, Instagram/social media marketing, Google reviews automation, before-after portfolio website.";
+        }
+        if (str_contains($t, 'doctor') || str_contains($t, 'hospital') || str_contains($t, 'clinic') || str_contains($t, 'dental')) {
+            return "- INDUSTRY CONTEXT: Healthcare. Pitch patient appointment booking, Google My Business optimization, reputation management, telemedicine website features.";
+        }
+        if (str_contains($t, 'gym') || str_contains($t, 'fitness') || str_contains($t, 'yoga')) {
+            return "- INDUSTRY CONTEXT: Fitness business. Pitch membership management, class booking system, transformation showcase website, lead generation through social proof.";
+        }
+        if (str_contains($t, 'school') || str_contains($t, 'coaching') || str_contains($t, 'education') || str_contains($t, 'tuition')) {
+            return "- INDUSTRY CONTEXT: Education/coaching. Pitch student enrollment system, online course platform, parent communication automation, Google Ads for local student acquisition.";
+        }
+        if (str_contains($t, 'real estate') || str_contains($t, 'property') || str_contains($t, 'builder')) {
+            return "- INDUSTRY CONTEXT: Real estate. Pitch property listing website, lead capture landing pages, virtual tour integration, CRM for buyer follow-up automation.";
+        }
+        if (str_contains($t, 'shop') || str_contains($t, 'store') || str_contains($t, 'retail') || str_contains($t, 'boutique')) {
+            return "- INDUSTRY CONTEXT: Retail shop. Pitch e-commerce/online store, WhatsApp catalog, Google Shopping integration, local SEO for foot traffic.";
+        }
+        if (str_contains($t, 'hotel') || str_contains($t, 'resort') || str_contains($t, 'travel') || str_contains($t, 'tourism')) {
+            return "- INDUSTRY CONTEXT: Hospitality/travel. Pitch direct booking website (reduce OTA commission), Google Hotel integration, review management, retargeting campaigns.";
+        }
+        if (str_contains($t, 'lawyer') || str_contains($t, 'advocate') || str_contains($t, 'legal') || str_contains($t, 'law firm')) {
+            return "- INDUSTRY CONTEXT: Legal services. Pitch professional authority website, content marketing for legal expertise, client intake automation, Google Ads for case-specific keywords.";
+        }
+        return "- INDUSTRY CONTEXT: Business type is '$businessType'. Tailor your message to address specific challenges and growth opportunities in this industry.";
     }
 
     private static function pitchInstruction(string $pitchType): string
@@ -141,12 +201,18 @@ USR;
         }
     }
 
-    private static function pickServices(string $pitchType, string $businessName): array
+    private static function pickServices(string $pitchType, string $businessType, string $businessName): array
     {
-        $a = ['CRM Automation', 'AI Agent', 'WhatsApp Automation', 'Funnel Optimization', 'Website Speed & Conversion Audit'];
-        $b = ['Business Website', 'Landing Page', 'Google My Business Optimization', 'Mobile-first Website', 'Enquiry / Lead Form System'];
-        $pool = $pitchType === 'type_a' ? $a : ($pitchType === 'type_b' ? $b : array_merge(array_slice($a, 0, 2), array_slice($b, 0, 2)));
-        // Stable but lightly varied selection
+        // If business type is digital marketing — offer collaboration/tools
+        if ($businessType && str_contains(mb_strtolower($businessType), 'digital marketing')) {
+            $pool = ['White-label AI Chatbot', 'Client CRM Automation', 'Overflow Project Partnership', 'AI Content Generation Tool', 'Automated Reporting Dashboard'];
+        } else if ($pitchType === 'type_a') {
+            $pool = ['CRM Automation', 'AI Agent', 'WhatsApp Automation', 'Funnel Optimization', 'Website Speed & Conversion Audit'];
+        } else if ($pitchType === 'type_b') {
+            $pool = ['Business Website', 'Landing Page', 'Google My Business Optimization', 'Mobile-first Website', 'Enquiry / Lead Form System'];
+        } else {
+            $pool = ['CRM Automation', 'AI Agent', 'Business Website', 'Landing Page'];
+        }
         $seed = crc32($businessName);
         shuffle_with_seed($pool, $seed);
         return array_slice($pool, 0, 3);

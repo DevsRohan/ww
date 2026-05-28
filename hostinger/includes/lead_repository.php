@@ -21,7 +21,7 @@ class LeadRepository
         $existing = self::findByPhone($data['phone_e164']);
         if ($existing) {
             // Update only enriching fields (do not overwrite phone)
-            $updatable = ['business_name','address','locality','city','state','website_url','website_status','rating','review_count','pitch_type','language_preference','tags','notes','source'];
+            $updatable = ['business_name','business_type','address','locality','city','state','website_url','website_status','rating','review_count','pitch_type','language_preference','tags','notes','source'];
             $sets = [];
             $params = [];
             foreach ($updatable as $f) {
@@ -38,12 +38,13 @@ class LeadRepository
         }
 
         $id = DB::insert(
-            'INSERT INTO leads (business_name, address, locality, city, state, phone_number, phone_e164,
+            'INSERT INTO leads (business_name, business_type, address, locality, city, state, phone_number, phone_e164,
               website_url, website_status, rating, review_count, whatsapp_status, outreach_status,
               pitch_type, language_preference, tags, notes, source, created_at, updated_at)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
             [
                 $data['business_name'] ?? '',
+                $data['business_type'] ?? null,
                 $data['address'] ?? null,
                 $data['locality'] ?? null,
                 $data['city'] ?? null,
@@ -69,7 +70,7 @@ class LeadRepository
 
     public static function updateField(int $id, string $field, $value): void
     {
-        $allowed = ['whatsapp_status','outreach_status','pitch_type','language_preference','notes','website_url','website_status','last_outbound_at','last_inbound_at','last_contacted_at','unread_count','is_pinned','tags','rating','review_count','business_name','locality','city','state','address'];
+        $allowed = ['whatsapp_status','outreach_status','pitch_type','language_preference','notes','website_url','website_status','last_outbound_at','last_inbound_at','last_contacted_at','unread_count','is_pinned','tags','rating','review_count','business_name','business_type','locality','city','state','address'];
         if (!in_array($field, $allowed, true)) return;
         if (is_array($value)) $value = json_encode($value, JSON_UNESCAPED_UNICODE);
         DB::execute("UPDATE leads SET `$field` = ?, updated_at = NOW() WHERE id = ?", [$value, $id]);
