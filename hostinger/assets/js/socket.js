@@ -18,10 +18,24 @@
     (handlers[event] || []).forEach(fn => { try { fn(payload); } catch (e) { console.error(e); } });
   }
 
+  // Fetch engine status via REST API (fallback when socket is slow/not connected)
+  async function fetchEngineStatus() {
+    try {
+      const r = await API.get('/engine_status.php');
+      if (r && r.status && r.status.ok && r.status.status) {
+        const s = r.status.status;
+        lastEngineState = s;
+        updateEnginePill(s);
+      }
+    } catch (e) { /* silent */ }
+  }
+
   function connect() {
     if (!url || typeof io === 'undefined') {
       console.warn('Socket URL not configured.');
       updateEnginePill({ state: 'unknown', ready: false });
+      // Fallback: fetch engine status via API
+      fetchEngineStatus();
       return;
     }
     socket = io(url, {
@@ -33,9 +47,9 @@
       timeout: 20000,
     });
 
-    socket.on('connect',     () => emit('socket:connected'));
+    socket.on('connect',     () => { emit('socket:connected'); fetchEngineStatus(); });
     socket.on('disconnect',  (reason) => emit('socket:disconnected', reason));
-    socket.on('connect_error', (err) => emit('socket:error', err.message));
+    socket.on('connect_error', (err) => { emit('socket:error', err.message); fetchEngineStatus(); });
 
     // Engine + system events
     socket.on('engine:qr',           (p) => { lastEngineState = { state: 'qr', hasQr: true }; updateEnginePill(lastEngineState); emit('engine:qr', p); });
@@ -85,5 +99,8 @@
     }
   }
 
-  window.SOCK = { on, off, emit, connect, getEngineState: () => lastEngineState };
+  window.SOCK = { on, off, emit, connect, getEngineState: () => lastEngineState, fetchEngineStatus };
+
+  // Periodic engine status check via API every 30s (socket events can be missed)
+  setInterval(fetchEngineStatus, 30000);
 })();
